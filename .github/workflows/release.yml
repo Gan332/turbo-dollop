@@ -1,0 +1,75 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install rustup and targets
+        run: |
+          curl https://sh.rustup.rs -sSf | sh -s -- -y --profile minimal
+          export PATH="$HOME/.cargo/bin:$PATH"
+          rustup target add \
+            x86_64-pc-windows-gnu \
+            x86_64-unknown-linux-musl \
+            aarch64-unknown-linux-musl \
+            x86_64-apple-darwin \
+            aarch64-apple-darwin
+
+      - name: Install zig
+        run: |
+          curl -sSL -o /tmp/zig.tar.xz \
+            https://ziglang.org/download/0.16.0/zig-x86_64-linux-0.16.0.tar.xz
+          tar -xf /tmp/zig.tar.xz -C /opt
+          echo "/opt/zig-x86_64-linux-0.16.0" >> "$GITHUB_PATH"
+
+      - name: Install cargo-zigbuild
+        run: |
+          export PATH="$HOME/.cargo/bin:$PATH"
+          cargo install cargo-zigbuild --locked
+
+      - name: Build all targets
+        run: |
+          export PATH="$HOME/.cargo/bin:$PATH"
+          for t in \
+            x86_64-pc-windows-gnu \
+            x86_64-unknown-linux-musl \
+            aarch64-unknown-linux-musl \
+            x86_64-apple-darwin \
+            aarch64-apple-darwin; do
+            cargo zigbuild --release --target "$t"
+          done
+
+      - name: Package artifacts
+        run: |
+          mkdir -p dist
+          cp target/x86_64-unknown-linux-musl/release/opencode-free-api \
+             dist/opencode-free-api-linux-x86_64
+          cp target/aarch64-unknown-linux-musl/release/opencode-free-api \
+             dist/opencode-free-api-linux-aarch64
+          cp target/x86_64-pc-windows-gnu/release/opencode-free-api.exe \
+             dist/opencode-free-api-windows-x86_64.exe
+          cp target/x86_64-apple-darwin/release/opencode-free-api \
+             dist/opencode-free-api-macos-x86_64
+          cp target/aarch64-apple-darwin/release/opencode-free-api \
+             dist/opencode-free-api-macos-arm64
+          chmod +x dist/*
+          sudo apt-get update -qq && sudo apt-get install -y -qq upx
+          upx --best -q dist/opencode-free-api-linux-x86_64
+          upx --best -q dist/opencode-free-api-linux-aarch64
+          upx --best -q dist/opencode-free-api-windows-x86_64.exe
+
+      - name: Upload binaries to release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*
+          fail_on_unmatched_files: true
