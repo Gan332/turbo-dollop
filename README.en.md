@@ -33,7 +33,8 @@ The console prints three addresses on startup (loopback / LAN / public). Point a
 | `API_TOKEN` | unset | Optional Bearer token sent to each upstream; unset means no Authorization header is sent (fill in your Zen key) |
 | `AUTH_TOKEN` | unset | If set, requests must carry `Authorization: Bearer <value>` (`/health`, the index page and preflight are exempt) |
 | `STRIP_FREE` | off | Strip the `-free` suffix from model IDs in `/v1/models` and map calls back to the real ID |
-| `CONFIG_PATH` | `opencode-free-api-config.json` | Config file written by the web **Service settings** panel; when present its fields override the four variables above, and a malformed file falls back to the environment |
+| `UPSTREAM_PROTOCOL` | `auto` | Upstream completion protocol: `auto` passes each client protocol through unchanged; `chat` always calls `/chat/completions` and converts Responses clients; `responses` always calls `/responses` and converts Chat clients. Also editable from the web **Service settings** panel, hot-applied |
+| `CONFIG_PATH` | `opencode-free-api-config.json` | Config file written by the web **Service settings** panel; when present its fields override the variables above, and a malformed file falls back to the environment |
 | `UPSTREAM_TIMEOUT` | `90` | Non-streaming upstream request timeout (seconds) |
 | `STREAM_TIMEOUT` | `1800` | Streaming upstream request timeout (seconds) |
 | `CONNECT_TIMEOUT` | `10` | Upstream TCP/TLS connect timeout (seconds) |
@@ -55,12 +56,31 @@ AUTH_TOKEN=my-secret \
 | `GET` | `/claude/v1/models` `/anthropic/v1/models` | Claude-compatible model list |
 | `POST` | `/v1/chat/completions` | Chat completions, streaming SSE supported |
 | `POST` | `/v1/responses` | Responses API (OpenAI Responses compatible), streaming SSE supported |
-| `GET` `POST` | `/api/config` | Read / save service settings (upstream nodes, tokens, `STRIP_FREE`); saves take effect immediately and are written to the config file |
+| `GET` `POST` | `/api/config` | Read / save service settings (upstream nodes, tokens, `STRIP_FREE`, `UPSTREAM_PROTOCOL`); saves take effect immediately and are written to the config file |
+| `GET` | `/api/connectivity` | Per-node connectivity test: probes each upstream `/models` concurrently and returns status code, latency in ms, model count and error |
 | `*` | anything else | Transparently forwarded upstream; failure triggers failover to the next node |
 
 `/v1`-prefixed endpoints also accept `/models`, `/chat/completions`, `/responses` and common aliases like `/api/v1`, `/api/v3`, `/api/paas/v4`, `/v1beta`. `/v1/models` fetches the upstream list and keeps only free models; upstream requests use `User-Agent: opencode/1.0`, streaming requests are forwarded chunk-by-chunk as SSE and fail over to the next node on errors. `/health` reports request count and listen address information.
 
 `/api/config` access rules: when `AUTH_TOKEN` is set the matching Bearer token is required; otherwise only requests from `127.0.0.1` may write, every other origin is read-only (token fields come back masked). `GET /api/config` returns `nodes`, `strip_free`, `api_token`/`auth_token` (empty for non-admins), `*_set`, `admin`, `auth_required` and `config_path`; `POST` accepts `nodes` (array), `strip_free` (boolean), `api_token`/`auth_token` (string, empty means unchanged) and `clear_api_token`/`clear_auth_token` (`true` to clear). Fields that are absent keep their current value.
+
+## Protocol conversion (Chat ⇄ Responses)
+
+`UPSTREAM_PROTOCOL` (web **Service settings → upstream protocol**) selects the protocol used against the upstream:
+
+| Value | Behaviour |
+| --- | --- |
+| `auto` | Keeps today's routing: a client `/v1/chat/completions` goes to upstream `/chat/completions`, `/v1/responses` goes to `/responses`, no conversion |
+| `chat` | Always calls `/chat/completions`: Chat clients pass through, Responses clients are converted to Chat and back |
+| `responses` | Always calls `/responses`: Responses clients pass through, Chat clients are converted to Responses and back |
+
+The conversion covers:
+
+- **Requests**: system / instructions, multimodal content parts, flat vs nested `tools` and `tool_choice`, `tool_calls` ↔ `function_call` + `function_call_output`, `max_tokens` ↔ `max_output_tokens`, `reasoning_effort` ↔ `reasoning.effort`, plus sampling parameters
+- **Responses**: text, `tool_calls` with `finish_reason` mapped between `tool_calls` / `length` / `stop`, `reasoning_content` → `reasoning` output items, usage fields (`prompt/completion_tokens` ↔ `input/output_tokens`), and `max_output_tokens` truncation mapped to `incomplete`
+- **Streaming**: `response.output_text.delta`, `response.function_call_arguments.delta` and `response.completed` events are converted to and from `chat.completion.chunk` frames, including `finish_reason` and usage; `auto` keeps the thinking-mode `reasoning_content` fallback untouched
+
+`GET /api/connectivity` verifies reachability only — it probes `/models` and is independent of the protocol setting.
 
 ## Thinking mode
 
@@ -76,8 +96,9 @@ Visiting the root path (e.g. `http://localhost:8788/`) returns an embedded statu
 
 - **Status & stats**: polls `/health` for uptime, request count and free-model count, and checks GitHub releases to show an update banner
 - **Available models**: an expanded-by-default model panel with search filtering, manual refresh and click-to-copy model IDs; when `AUTH_TOKEN` is enabled the admin token is attached automatically, otherwise the panel reports that an admin token is needed
-- **Service settings**: edit `NODES` (one per line), `STRIP_FREE`, `API_TOKEN` and `AUTH_TOKEN` right in the page — saves hot-apply to the running service and are written to the file at `CONFIG_PATH`, then reloaded on restart; the admin token can be remembered in the local browser
-- **Access**: the index page and `/health` stay open without credentials; with `AUTH_TOKEN` set the read/write endpoints require a Bearer token, without it only `127.0.0.1` may change settings while every other origin stays read-only
+- **Service settings**: edit `NODES` (one per line), `STRIP_FREE`, `UPSTREAM_PROTOCOL`, `API_TOKEN` and `AUTH_TOKEN` right in the page — saves hot-apply to the running service and are written to the file at `CONFIG_PATH`, then reloaded on restart; the admin token can be remembered in the local browser
+- **Connectivity test**: one click probes every upstream `/models` concurrently and lists ✓/✗ per node with HTTP status, latency and model count, plus an error snippet on failure
+- **Access**: the index page and `/health` stay open without credentials; with `AUTH_TOKEN` set the read/write endpoints require a Bearer token, without it only `127.0.0.1` may change settings while every other origin stays read-only (model list and connectivity follow the same read rules)
 
 ## Android
 

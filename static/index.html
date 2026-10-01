@@ -170,16 +170,31 @@
   .field > label { font-size: 14px; font-weight: 500; }
   .field .hint { font-size: 12px; color: var(--text-muted); text-wrap: pretty; }
   .grid2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 16px; }
-  input[type="text"], input[type="password"], textarea {
+  input[type="text"], input[type="password"], textarea, select {
     width: 100%; background: var(--bg); color: var(--text);
     border: 1px solid var(--border); border-radius: var(--radius-sm);
     padding: 10px 12px; font: inherit; font-size: 14px;
     transition: border-color .15s ease;
   }
+  select { cursor: pointer; }
   textarea { font-family: var(--font-mono); min-height: 96px; resize: vertical; }
   .inline > input[type="password"] { flex: 1 1 220px; width: auto; min-width: 0; }
-  input:focus, textarea:focus { border-color: var(--accent); outline: none; }
-  input:disabled, textarea:disabled, input[readonly], textarea[readonly] { opacity: .55; }
+  input:focus, textarea:focus, select:focus { border-color: var(--accent); outline: none; }
+  input:disabled, textarea:disabled, select:disabled,
+  input[readonly], textarea[readonly] { opacity: .55; }
+  .conn-list { display: grid; gap: 8px; margin-top: 14px; }
+  .conn-list:empty::after { content: '尚未测试'; color: var(--text-muted); font-size: 13px; }
+  .conn-row {
+    display: flex; gap: 10px; align-items: baseline; flex-wrap: wrap;
+    font-size: 13px; padding: 9px 12px; background: var(--bg);
+    border: 1px solid var(--border); border-radius: var(--radius-sm);
+  }
+  .conn-flag { font-weight: 700; flex-shrink: 0; }
+  .conn-flag.ok { color: #6fbf82; }
+  .conn-flag.bad { color: #e09879; }
+  .conn-node { font-family: var(--font-mono); flex: 1 1 240px; min-width: 0; overflow-wrap: anywhere; }
+  .conn-meta { color: var(--text-muted); font-variant-numeric: tabular-nums; }
+  .conn-error { flex-basis: 100%; color: #e09879; overflow-wrap: anywhere; text-wrap: pretty; }
   .inline { display: flex; gap: 14px; flex-wrap: wrap; align-items: center; }
   .check { display: inline-flex; gap: 6px; align-items: center; font-size: 13px; color: var(--text-muted); cursor: pointer; }
   .check input { width: auto; }
@@ -281,6 +296,7 @@
     <div class="row method-row"><span class="method m-post">POST</span><span class="path">/v1/chat/completions</span><span class="desc">对话补全（支持流式）</span></div>
     <div class="row method-row"><span class="method m-post">POST</span><span class="path">/v1/responses</span><span class="desc">Responses 补全（OpenAI Responses 兼容，支持流式）</span></div>
     <div class="row method-row"><span class="method m-get">GET</span><span class="path">/api/config</span><span class="desc">读取服务配置（同路径 POST 保存，需管理令牌或本机访问）</span></div>
+    <div class="row method-row"><span class="method m-get">GET</span><span class="path">/api/connectivity</span><span class="desc">逐节点连通性测试：状态码 / 延迟 / 模型数量</span></div>
   </div>
 
   <div class="endpoint">
@@ -326,6 +342,16 @@
       </div>
 
       <div class="field">
+        <label for="cfg-protocol">上游协议（协议转换）</label>
+        <select id="cfg-protocol">
+          <option value="auto">auto — 按客户端协议直通，不做转换（默认）</option>
+          <option value="chat">chat — 上游固定 /chat/completions，Responses 客户端自动转成 Chat</option>
+          <option value="responses">responses — 上游固定 /responses，Chat 客户端自动转成 Responses</option>
+        </select>
+        <span class="hint">转换会同步改写请求体、响应体与流式事件（SSE），思考模式与工具调用一并换算。</span>
+      </div>
+
+      <div class="field">
         <label>模型与令牌</label>
         <div class="inline">
           <label class="check"><input type="checkbox" id="cfg-strip"> STRIP_FREE（对客户端隐藏 -free 后缀）</label>
@@ -356,6 +382,19 @@
     </div>
   </div>
 
+  <div class="endpoint" id="connectivity">
+    <h2>连通性测试</h2>
+    <div class="row">
+      <span class="path">探测</span>
+      <span class="desc">对每个上游并发请求 <code>/models</code>，返回状态码、延迟与模型数量（需管理令牌或本机访问）</span>
+    </div>
+    <div class="actions">
+      <button type="button" class="btn btn-primary btn-sm" id="conn-run">开始测试</button>
+      <span class="cfg-msg" id="conn-msg" role="status" aria-live="polite"></span>
+    </div>
+    <div class="conn-list" id="conn-list"></div>
+  </div>
+
   <footer>
     <div class="footer-copy">© 夏若倾心 · v<span id="ver">__VERSION__</span> · <a href="https://github.com/ERX399/opencode-free-api-rust" target="_blank" rel="noopener noreferrer">GitHub</a></div>
   </footer>
@@ -381,7 +420,8 @@
     var cfgApi = $('cfg-api'), cfgApiClear = $('cfg-api-clear');
     var cfgAuth = $('cfg-auth'), cfgAuthClear = $('cfg-auth-clear');
     var cfgAdmin = $('cfg-admin'), cfgAdminRemember = $('cfg-admin-remember');
-    var cfgPathEl = $('cfg-path'), cfgPortEl = $('cfg-port');
+    var cfgPathEl = $('cfg-path'), cfgPortEl = $('cfg-port'), cfgProtocol = $('cfg-protocol');
+    var connRun = $('conn-run'), connMsg = $('conn-msg'), connList = $('conn-list');
 
     var base = location.origin;
     var startedAt = null;
@@ -589,6 +629,7 @@
       if (!j) j = {};
       cfgNodes.value = Array.isArray(j.nodes) ? j.nodes.join('\n') : '';
       cfgStrip.checked = !!j.strip_free;
+      cfgProtocol.value = j.protocol || 'auto';
       cfgApi.value = admin ? (j.api_token || '') : '';
       cfgAuth.value = admin ? (j.auth_token || '') : '';
       cfgApiClear.disabled = !admin || !j.api_token_set;
@@ -597,6 +638,7 @@
       if (cfgAuthClear.disabled) cfgAuthClear.checked = false;
       cfgNodes.readOnly = !admin;
       cfgStrip.disabled = !admin;
+      cfgProtocol.disabled = !admin;
       cfgApi.readOnly = !admin;
       cfgAuth.readOnly = !admin;
       cfgPathEl.textContent = j.config_path || '—';
@@ -640,6 +682,7 @@
         .filter(function (line) { return line.length > 0; });
       if (lines.length) payload.nodes = lines;
       payload.strip_free = !!cfgStrip.checked;
+      payload.protocol = cfgProtocol.value || 'auto';
       var api = cfgApi.value.trim();
       var auth = cfgAuth.value.trim();
       if (api) payload.api_token = api;
@@ -680,6 +723,76 @@
         loadModels();
       } catch (e) {
         setCfgMsg('保存失败：' + e.message, false);
+      }
+    }
+
+    function setConnMsg(text, ok) {
+      connMsg.textContent = text || '';
+      connMsg.classList.toggle('ok', !!ok);
+      connMsg.classList.toggle('err', !!(text && !ok));
+    }
+
+    function renderConnectivity(payload) {
+      connList.textContent = '';
+      var results = (payload && payload.results) || [];
+      results.forEach(function (item) {
+        var row = document.createElement('div');
+        row.className = 'conn-row';
+        var flag = document.createElement('span');
+        flag.className = 'conn-flag ' + (item.ok ? 'ok' : 'bad');
+        flag.textContent = item.ok ? '✓' : '✗';
+        var node = document.createElement('span');
+        node.className = 'conn-node';
+        node.textContent = item.node || '?';
+        var meta = document.createElement('span');
+        meta.className = 'conn-meta';
+        var parts = [];
+        if (item.status) parts.push('HTTP ' + item.status);
+        parts.push((item.latency_ms || 0) + ' ms');
+        if (item.ok) parts.push((item.models || 0) + ' 个模型');
+        meta.textContent = parts.join(' · ');
+        row.appendChild(flag);
+        row.appendChild(node);
+        row.appendChild(meta);
+        if (item.error) {
+          var error = document.createElement('span');
+          error.className = 'conn-error';
+          error.textContent = item.error;
+          row.appendChild(error);
+        }
+        connList.appendChild(row);
+      });
+      var okCount = results.filter(function (item) { return item.ok; }).length;
+      setConnMsg(
+        '测试完成：' + okCount + '/' + results.length + ' 个节点可用（协议 ' +
+          (payload && payload.protocol ? payload.protocol : 'auto') + '）',
+        okCount > 0
+      );
+    }
+
+    async function runConnectivity() {
+      connRun.disabled = true;
+      setConnMsg('测试中…', true);
+      connList.textContent = '';
+      try {
+        var r = await fetch(base + '/api/connectivity', {
+          cache: 'no-store',
+          headers: apiHeaders()
+        });
+        var j = await readJson(r);
+        if (r.status === 401) {
+          setConnMsg('需要管理令牌才能测试', false);
+          return;
+        }
+        if (!r.ok) {
+          setConnMsg(errorText('测试失败', r, j), false);
+          return;
+        }
+        renderConnectivity(j);
+      } catch (e) {
+        setConnMsg('测试失败：' + e.message, false);
+      } finally {
+        connRun.disabled = false;
       }
     }
 
@@ -764,6 +877,7 @@
 
     $('cfg-save').addEventListener('click', saveConfig);
     $('cfg-reload').addEventListener('click', loadConfig);
+    connRun.addEventListener('click', runConnectivity);
 
     cfgAdmin.addEventListener('change', function () {
       var value = cfgAdmin.value.trim();
