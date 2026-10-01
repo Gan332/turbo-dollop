@@ -712,8 +712,8 @@ impl App {
             };
         }
         match self.upstream("/responses", Method::Post, body, accept, false) {
-            Ok(response) => {
-                let payload: Value = match serde_json::from_slice(&response.into_body()) {
+            Ok(upstream) => {
+                let payload: Value = match serde_json::from_slice(&upstream.into_body()) {
                     Ok(payload) => payload,
                     Err(_) => {
                         return error_response(502, "upstream_error", "invalid responses payload");
