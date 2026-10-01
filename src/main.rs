@@ -2313,7 +2313,7 @@ data: [DONE]"#;
     #[test]
     fn e2e_config_endpoints_round_trip() {
         let path = temp_config_path("http");
-        let app = app_for_test();
+        let mut app = app_for_test();
         app.config_path = path.clone();
         let base = start_app_server(app);
         let client = test_agent();
