@@ -1,7 +1,6 @@
 use std::{
     collections::HashMap,
-    env,
-    fs,
+    env, fs,
     io::{Cursor, Read},
     net::{IpAddr, UdpSocket},
     path::{Path, PathBuf},
@@ -487,7 +486,9 @@ impl App {
         let response =
             match self.upstream("/models", Method::Get, Vec::new(), accept.as_deref(), false) {
                 Ok(response) => response,
-                Err(error) => return error_response(error.status, "upstream_error", &error.message),
+                Err(error) => {
+                    return error_response(error.status, "upstream_error", &error.message);
+                }
             };
         let payload: Value = match serde_json::from_slice(&response.into_body()).ok() {
             Some(payload) => payload,
@@ -560,13 +561,7 @@ impl App {
         if stream {
             return self.stream_upstream("/responses", body, accept.as_deref(), false);
         }
-        match self.upstream(
-            "/responses",
-            Method::Post,
-            body,
-            accept.as_deref(),
-            false,
-        ) {
+        match self.upstream("/responses", Method::Post, body, accept.as_deref(), false) {
             Ok(response) => proxy_response(response),
             Err(error) => upstream_error_response(error, "application/json; charset=utf-8"),
         }
@@ -926,12 +921,7 @@ impl App {
 
 fn upstream_error_response(error: UpstreamError, content_type: &str) -> ResponseBox {
     if (400..500).contains(&error.status) && !error.body.is_empty() {
-        response(
-            error.status,
-            error.body,
-            Some(content_type),
-            None,
-        )
+        response(error.status, error.body, Some(content_type), None)
     } else {
         error_response(error.status, "upstream_error", &error.message)
     }
@@ -1936,7 +1926,11 @@ mod tests {
         }));
         let parsed: Value = serde_json::from_slice(&body).expect("valid json out");
         assert_eq!(parsed["reasoning_effort"], json!("high"));
-        assert_eq!(parsed["reasoning_content"], json!(""), "thinking mode should kick in via merged effort");
+        assert_eq!(
+            parsed["reasoning_content"],
+            json!(""),
+            "thinking mode should kick in via merged effort"
+        );
     }
 
     #[test]
@@ -1963,7 +1957,10 @@ mod tests {
         ensure_completion_reasoning(&mut body);
         let parsed: Value = serde_json::from_slice(&body).expect("valid json out");
         assert_eq!(parsed["reasoning_content"], json!(""));
-        assert_eq!(parsed["choices"][0]["message"]["reasoning_content"], json!(""));
+        assert_eq!(
+            parsed["choices"][0]["message"]["reasoning_content"],
+            json!("")
+        );
     }
 
     #[test]
@@ -1977,7 +1974,10 @@ mod tests {
         ensure_completion_reasoning(&mut body);
         let parsed: Value = serde_json::from_slice(&body).expect("valid json out");
         assert_eq!(parsed["reasoning_content"], json!("thoughts"));
-        assert_eq!(parsed["choices"][0]["message"]["reasoning_content"], json!("inner"));
+        assert_eq!(
+            parsed["choices"][0]["message"]["reasoning_content"],
+            json!("inner")
+        );
     }
 
     #[test]
@@ -1990,7 +1990,10 @@ mod tests {
         ensure_completion_reasoning(&mut body);
         let parsed: Value = serde_json::from_slice(&body).expect("valid json out");
         assert_eq!(parsed["reasoning_content"], json!(""));
-        assert_eq!(parsed["choices"][0]["message"]["reasoning_content"], json!(""));
+        assert_eq!(
+            parsed["choices"][0]["message"]["reasoning_content"],
+            json!("")
+        );
     }
 
     #[test]
@@ -2076,7 +2079,10 @@ data: [DONE]"#;
             .expect("fallback chunk present");
         let payload: Value =
             serde_json::from_str(fallback_line.strip_prefix("data: ").unwrap()).unwrap();
-        assert_eq!(payload["choices"][0]["delta"]["reasoning_content"], json!(""));
+        assert_eq!(
+            payload["choices"][0]["delta"]["reasoning_content"],
+            json!("")
+        );
     }
 
     #[test]
@@ -2099,7 +2105,8 @@ data: [DONE]"#;
 
     #[test]
     fn transform_stream_injects_without_any_usage_chunk() {
-        let stream = "data: {\"choices\":[{\"delta\":{},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n";
+        let stream =
+            "data: {\"choices\":[{\"delta\":{},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n";
         let mut body = stream.as_bytes().to_vec();
         transform_stream_body(&mut body);
         let transformed = String::from_utf8(body).unwrap();
@@ -2240,7 +2247,10 @@ data: [DONE]"#;
             json!(""),
             "missing reasoning_content should be filled, got {payload}"
         );
-        assert_eq!(payload["choices"][0]["message"]["reasoning_content"], json!(""));
+        assert_eq!(
+            payload["choices"][0]["message"]["reasoning_content"],
+            json!("")
+        );
     }
 
     #[test]
@@ -2316,7 +2326,8 @@ data: [DONE]"#;
     #[test]
     fn e2e_responses_stream_passes_sse_through() {
         let capture = Arc::new(Mutex::new(Vec::new()));
-        let sse = "data: {\"type\":\"response.output_text.delta\",\"delta\":\"hi\"}\n\ndata: [DONE]\n\n";
+        let sse =
+            "data: {\"type\":\"response.output_text.delta\",\"delta\":\"hi\"}\n\ndata: [DONE]\n\n";
         let upstream_url = start_mock_upstream(
             Arc::clone(&capture),
             sse.as_bytes().to_vec(),
@@ -2380,7 +2391,10 @@ data: [DONE]"#;
         assert_eq!(stored.api_token, Some(Some("zen-key".to_owned())));
         assert_eq!(
             stored.nodes,
-            Some(json!(["https://api-one.example", "https://api-two.example"]))
+            Some(json!([
+                "https://api-one.example",
+                "https://api-two.example"
+            ]))
         );
 
         let rejected = client
