@@ -33,6 +33,26 @@ jobs:
         continue-on-error: true
         run: cargo fmt --check
 
+  fmt-fix:
+    name: rustfmt artifact
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+
+      - name: Apply rustfmt
+        run: cargo fmt
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: rustfmt-src
+          path: src/main.rs
+          if-no-files-found: error
+
   build:
     name: build ${{ matrix.asset }}
     needs: check

@@ -597,15 +597,14 @@ impl App {
         let mut payload = self.remap_model(payload);
         // reasoning.effort 写法归一到 reasoning_effort，两种写法都能触发思考模式；
         // 已有显式 reasoning_effort 时优先保留原值
-        if payload.get("reasoning_effort").is_none() {
-            if let Some(effort) = payload
+        if payload.get("reasoning_effort").is_none()
+            && let Some(effort) = payload
                 .get("reasoning")
                 .and_then(|reasoning| reasoning.get("effort"))
                 .and_then(Value::as_str)
                 .filter(|effort| !effort.is_empty())
-            {
-                payload["reasoning_effort"] = Value::String(effort.to_owned());
-            }
+        {
+            payload["reasoning_effort"] = Value::String(effort.to_owned());
         }
         // Codex/thinking 协议要求把推理内容回传给上游，否则上游报 400。
         // OpenCode Console (zen/v1) 期望在请求顶层带上 reasoning_content；
@@ -1072,13 +1071,12 @@ fn ensure_completion_reasoning(body: &mut Vec<u8>) {
             if choice.get("reasoning_content").is_some() {
                 continue;
             }
-            if let Some(message) = choice.get_mut("message") {
-                if !message
+            if let Some(message) = choice.get_mut("message")
+                && !message
                     .get("reasoning_content")
                     .is_some_and(Value::is_string)
-                {
-                    message["reasoning_content"] = Value::String(String::new());
-                }
+            {
+                message["reasoning_content"] = Value::String(String::new());
             }
         }
     }
@@ -1110,12 +1108,12 @@ fn stream_chunk_identity(text: &str) -> Option<Value> {
 
 fn fallback_reasoning_chunk(text: &str) -> String {
     let mut chunk = json!({ "choices": [{ "index": 0, "delta": { "reasoning_content": "" } }] });
-    if let Some(object) = chunk.as_object_mut() {
-        if let Some(identity) = stream_chunk_identity(text) {
-            for key in ["id", "object", "created", "model"] {
-                if let Some(value) = identity.get(key) {
-                    object.insert(key.to_owned(), value.clone());
-                }
+    if let Some(object) = chunk.as_object_mut()
+        && let Some(identity) = stream_chunk_identity(text)
+    {
+        for key in ["id", "object", "created", "model"] {
+            if let Some(value) = identity.get(key) {
+                object.insert(key.to_owned(), value.clone());
             }
         }
     }
@@ -1141,11 +1139,12 @@ fn inject_reasoning_into_finish_block(block: &str) -> Option<String> {
             if choice.get("finish_reason").is_none() {
                 continue;
             }
-            if let Some(delta) = choice.get_mut("delta") {
-                if delta.get("content").is_none() && delta.get("reasoning_content").is_none() {
-                    delta["reasoning_content"] = Value::String(String::new());
-                    modified = true;
-                }
+            if let Some(delta) = choice.get_mut("delta")
+                && delta.get("content").is_none()
+                && delta.get("reasoning_content").is_none()
+            {
+                delta["reasoning_content"] = Value::String(String::new());
+                modified = true;
             }
         }
     }
@@ -1474,10 +1473,10 @@ fn persist_config(path: &Path, config: &RuntimeConfig) -> std::io::Result<()> {
     });
     let mut data = serde_json::to_vec_pretty(&payload).map_err(std::io::Error::other)?;
     data.push(b'\n');
-    if let Some(parent) = path.parent() {
-        if !parent.as_os_str().is_empty() {
-            fs::create_dir_all(parent)?;
-        }
+    if let Some(parent) = path.parent()
+        && !parent.as_os_str().is_empty()
+    {
+        fs::create_dir_all(parent)?;
     }
     let mut temp = path.as_os_str().to_os_string();
     temp.push(".tmp");
