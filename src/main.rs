@@ -49,8 +49,8 @@ struct RuntimeConfig {
 #[derive(Debug, Default)]
 struct StoredConfig {
     nodes: Option<Value>,
-    api_token: Option<String>,
-    auth_token: Option<String>,
+    api_token: Option<Option<String>>,
+    auth_token: Option<Option<String>>,
     strip_free: Option<bool>,
 }
 
@@ -1419,16 +1419,22 @@ fn load_stored(path: &Path) -> Option<StoredConfig> {
     };
     Some(StoredConfig {
         nodes: object.get("nodes").cloned(),
-        api_token: object
-            .get("api_token")
-            .and_then(Value::as_str)
-            .map(str::to_owned),
-        auth_token: object
-            .get("auth_token")
-            .and_then(Value::as_str)
-            .map(str::to_owned),
+        api_token: stored_token(object, "api_token"),
+        auth_token: stored_token(object, "auth_token"),
         strip_free: object.get("strip_free").and_then(Value::as_bool),
     })
+}
+
+fn stored_token(object: &Map<String, Value>, key: &str) -> Option<Option<String>> {
+    match object.get(key) {
+        None => None,
+        Some(Value::Null) => Some(None),
+        Some(Value::String(value)) => Some(Some(value.clone())),
+        Some(_) => {
+            eprintln!("配置文件 {key} 必须是字符串或 null，已忽略");
+            None
+        }
+    }
 }
 
 impl StoredConfig {
@@ -1439,21 +1445,19 @@ impl StoredConfig {
                 Err(message) => eprintln!("配置文件 nodes 无效，已忽略: {message}"),
             }
         }
-        if let Some(api_token) = &self.api_token {
-            let token = api_token.trim();
-            config.api_token = if token.is_empty() {
-                None
-            } else {
-                Some(token.to_owned())
-            };
+        if let Some(value) = &self.api_token {
+            config.api_token = value
+                .as_deref()
+                .map(str::trim)
+                .filter(|token| !token.is_empty())
+                .map(str::to_owned);
         }
-        if let Some(auth_token) = &self.auth_token {
-            let token = auth_token.trim();
-            config.auth_token = if token.is_empty() {
-                None
-            } else {
-                Some(token.to_owned())
-            };
+        if let Some(value) = &self.auth_token {
+            config.auth_token = value
+                .as_deref()
+                .map(str::trim)
+                .filter(|token| !token.is_empty())
+                .map(str::to_owned);
         }
         if let Some(strip_free) = self.strip_free {
             config.strip_free = strip_free;
@@ -1719,10 +1723,36 @@ mod tests {
         stored.apply(&mut restored);
         assert_eq!(restored.nodes, ["https://one.example"]);
         assert_eq!(restored.api_token.as_deref(), Some("api"));
-        assert_eq!(restored.auth_token, None, "absent keys keep env values");
+        assert_eq!(
+            restored.auth_token, None,
+            "null in the file clears the env value"
+        );
         assert!(restored.strip_free);
         let _ = fs::remove_file(&path);
         let _ = fs::remove_file(format!("{}.tmp", path.display()));
+    }
+
+    #[test]
+    fn partial_config_file_keeps_env_values() {
+        let path = temp_config_path("partial");
+        fs::write(&path, br#"{"nodes": ["https://three.example"]}"#).expect("write partial file");
+        let stored = load_stored(&path).expect("load partial config");
+        let mut restored = RuntimeConfig {
+            nodes: vec![DEFAULT_NODE.to_owned()],
+            api_token: Some("env-api".to_owned()),
+            auth_token: Some("env-auth".to_owned()),
+            strip_free: false,
+        };
+        stored.apply(&mut restored);
+        assert_eq!(restored.nodes, ["https://three.example"]);
+        assert_eq!(
+            restored.api_token.as_deref(),
+            Some("env-api"),
+            "absent keys keep env values"
+        );
+        assert_eq!(restored.auth_token.as_deref(), Some("env-auth"));
+        assert!(!restored.strip_free);
+        let _ = fs::remove_file(&path);
     }
 
     #[test]
@@ -2348,7 +2378,7 @@ data: [DONE]"#;
 
         let stored = load_stored(&path).expect("persisted config");
         assert_eq!(stored.strip_free, Some(true));
-        assert_eq!(stored.api_token.as_deref(), Some("zen-key"));
+        assert_eq!(stored.api_token, Some(Some("zen-key".to_owned())));
         assert_eq!(
             stored.nodes,
             Some(json!(["https://api-one.example", "https://api-two.example"]))
