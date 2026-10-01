@@ -25,12 +25,10 @@ jobs:
       - name: Run tests
         run: cargo test
 
-      - name: Clippy (advisory)
-        continue-on-error: true
+      - name: Clippy
         run: cargo clippy --all-targets -- -D warnings
 
-      - name: Format check (advisory)
-        continue-on-error: true
+      - name: Format check
         run: cargo fmt --check
 
   fmt-fix:
