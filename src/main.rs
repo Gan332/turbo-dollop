@@ -2608,7 +2608,7 @@ fn chat_stream_to_responses_stream(text: &str) -> String {
         } else {
             Value::Null
         },
-        "usage": usage.map(chat_usage_to_responses),
+        "usage": usage.as_ref().map(chat_usage_to_responses),
     });
     if let Some(object) = response.as_object_mut()
         && object.get("usage").is_none_or(|value| value.is_null())
