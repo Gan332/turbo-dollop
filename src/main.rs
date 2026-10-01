@@ -1,8 +1,10 @@
 use std::{
     collections::HashMap,
     env,
+    fs,
     io::{Cursor, Read},
-    net::UdpSocket,
+    net::{IpAddr, UdpSocket},
+    path::{Path, PathBuf},
     sync::{
         Arc, Mutex,
         atomic::{AtomicU64, Ordering},
@@ -12,7 +14,7 @@ use std::{
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
-use serde_json::{Value, json};
+use serde_json::{Map, Value, json};
 use tiny_http::{Header, Method, Request as HttpRequest, Response, Server, StatusCode};
 use ureq::Agent;
 
@@ -27,18 +29,35 @@ struct UpstreamError {
 }
 
 const MAX_BODY_BYTES: u64 = 64 << 20;
+const MAX_CONFIG_BYTES: u64 = 64 << 10;
+const MAX_CONFIG_NODES: usize = 64;
 const DEFAULT_NODE: &str = "https://opencode.ai/zen/v1";
+const DEFAULT_CONFIG_PATH: &str = "opencode-free-api-config.json";
 const FREE_MAP_TTL: u64 = 60;
 const UPSTREAM_USER_AGENT: &str = "opencode/1.0";
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 const INDEX_HTML: &str = include_str!("../static/index.html");
 
-#[derive(Clone)]
-struct App {
+#[derive(Clone, Debug)]
+struct RuntimeConfig {
     nodes: Vec<String>,
-    token: Option<String>,
+    api_token: Option<String>,
     auth_token: Option<String>,
     strip_free: bool,
+}
+
+#[derive(Debug, Default)]
+struct StoredConfig {
+    nodes: Option<Value>,
+    api_token: Option<String>,
+    auth_token: Option<String>,
+    strip_free: Option<bool>,
+}
+
+#[derive(Clone)]
+struct App {
+    config: Arc<Mutex<RuntimeConfig>>,
+    config_path: PathBuf,
     free_map: Arc<Mutex<FreeMap>>,
     client: Agent,
     stream_client: Agent,
@@ -73,13 +92,22 @@ impl App {
             nodes
         };
         let port = env_or("PORT", "8788");
-        App {
+        let mut runtime = RuntimeConfig {
             nodes,
-            token: env::var("API_TOKEN").ok().filter(|value| !value.is_empty()),
+            api_token: env::var("API_TOKEN").ok().filter(|value| !value.is_empty()),
             auth_token: env::var("AUTH_TOKEN")
                 .ok()
                 .filter(|value| !value.is_empty()),
             strip_free: env_flag("STRIP_FREE"),
+        };
+        let path = config_path();
+        if let Some(stored) = load_stored(&path) {
+            stored.apply(&mut runtime);
+            eprintln!("已从配置文件加载 {}", path.display());
+        }
+        App {
+            config: Arc::new(Mutex::new(runtime)),
+            config_path: path,
             free_map: Arc::new(Mutex::new(FreeMap::new())),
             client: client(env_seconds("UPSTREAM_TIMEOUT", 90), connect_timeout),
             stream_client: client(env_seconds("STREAM_TIMEOUT", 1800), connect_timeout),
@@ -92,6 +120,25 @@ impl App {
                 .map(|d| d.as_secs())
                 .unwrap_or(0),
         }
+    }
+
+    fn cfg(&self) -> RuntimeConfig {
+        self.config.lock().expect("config lock").clone()
+    }
+
+    fn auth_required(&self) -> bool {
+        self.config
+            .lock()
+            .expect("config lock")
+            .auth_token
+            .is_some()
+    }
+
+    fn admin_authorized(&self, request: &HttpRequest) -> bool {
+        let auth_required = self.auth_required();
+        let authorized = !auth_required || self.authorized(request);
+        let remote = request.remote_addr().map(|addr| addr.ip());
+        admin_allowed(auth_required, authorized, remote)
     }
 }
 
@@ -111,7 +158,7 @@ fn main() {
 
     eprintln!(
         "正在监听 {address}，上游节点 {} 个，工作线程 {workers} 个",
-        app.nodes.len()
+        app.cfg().nodes.len()
     );
     eprintln!("  控制台: http://127.0.0.1:{}/", app.port);
     eprintln!("  本机:   http://127.0.0.1:{}/v1", app.port);
@@ -122,8 +169,10 @@ fn main() {
     } else {
         eprintln!("  公网:   无法获取（探测失败）");
     }
-    if app.auth_token.is_some() {
+    if app.auth_required() {
         eprintln!("已启用 AUTH_TOKEN 鉴权");
+    } else {
+        eprintln!("未启用 AUTH_TOKEN 鉴权：服务处于开放模式，服务设置仅本机可改");
     }
 
     let server = match Server::http(&address) {
@@ -250,7 +299,7 @@ impl App {
                 200,
                 json!({
                     "status": "ok",
-                    "nodes": self.nodes,
+                    "nodes": self.cfg().nodes,
                     "requests": self.requests.load(Ordering::Relaxed),
                     "port": self.port,
                     "local_ip": self.local_ip,
@@ -259,10 +308,19 @@ impl App {
                 }),
             );
         }
-        if self.auth_token.is_some() && !self.authorized(request) {
+        if method == Method::Get && path == "/" {
+            return self.index_response();
+        }
+        if self.auth_required() && !self.authorized(request) {
             return error_response(401, "invalid_api_key", "missing or invalid bearer token");
         }
         self.requests.fetch_add(1, Ordering::Relaxed);
+        if method == Method::Get && is_config_path(path) {
+            return self.config_view_response(request);
+        }
+        if method == Method::Post && is_config_path(path) {
+            return self.config_update(request);
+        }
         if method == Method::Get && is_models_path(path) {
             return self.models(request);
         }
@@ -272,14 +330,14 @@ impl App {
         if method == Method::Post && is_chat_path(path) {
             return self.chat_completions(request);
         }
-        if method == Method::Get && path == "/" {
-            return self.index_response();
+        if method == Method::Post && is_responses_path(path) {
+            return self.responses_completions(request);
         }
         self.forward(request, &method, &full_path)
     }
 
     fn authorized(&self, request: &HttpRequest) -> bool {
-        let expected = self.auth_token.as_deref().unwrap_or_default();
+        let expected = self.cfg().auth_token.unwrap_or_default();
         request_header(request, "Authorization")
             .and_then(|value| {
                 value
@@ -288,6 +346,140 @@ impl App {
                     .map(str::to_owned)
             })
             .is_some_and(|token| token == expected)
+    }
+
+    fn config_view_response(&self, request: &HttpRequest) -> ResponseBox {
+        let admin = self.admin_authorized(request);
+        json_response(200, self.config_view(admin))
+    }
+
+    fn config_view(&self, admin: bool) -> Value {
+        let cfg = self.cfg();
+        let api_token_set = cfg.api_token.is_some();
+        let auth_token_set = cfg.auth_token.is_some();
+        let auth_required = auth_token_set;
+        let api_token = match cfg.api_token {
+            Some(token) if admin => token,
+            _ => String::new(),
+        };
+        let auth_token = match cfg.auth_token {
+            Some(token) if admin => token,
+            _ => String::new(),
+        };
+        json!({
+            "nodes": cfg.nodes,
+            "strip_free": cfg.strip_free,
+            "api_token": api_token,
+            "auth_token": auth_token,
+            "api_token_set": api_token_set,
+            "auth_token_set": auth_token_set,
+            "admin": admin,
+            "auth_required": auth_required,
+            "config_path": self.config_path.display().to_string(),
+        })
+    }
+
+    fn config_update(&self, request: &mut HttpRequest) -> ResponseBox {
+        if !self.admin_authorized(request) {
+            return error_response(
+                403,
+                "forbidden",
+                "config changes require the AUTH_TOKEN bearer or loopback access",
+            );
+        }
+        let mut body = Vec::new();
+        if request
+            .as_reader()
+            .take(MAX_CONFIG_BYTES + 1)
+            .read_to_end(&mut body)
+            .is_err()
+            || body.len() as u64 > MAX_CONFIG_BYTES
+        {
+            return error_response(
+                400,
+                "invalid_request_error",
+                "config body must be a small JSON object",
+            );
+        }
+        let payload: Value = match serde_json::from_slice(&body) {
+            Ok(payload) => payload,
+            Err(_) => {
+                return error_response(
+                    400,
+                    "invalid_request_error",
+                    "config body must be valid JSON",
+                );
+            }
+        };
+        let object = match payload.as_object() {
+            Some(object) => object.clone(),
+            None => {
+                return error_response(
+                    400,
+                    "invalid_request_error",
+                    "config body must be a JSON object",
+                );
+            }
+        };
+        let strip_free = match object.get("strip_free") {
+            Some(Value::Bool(value)) => Some(*value),
+            Some(Value::Null) | None => None,
+            Some(_) => {
+                return error_response(
+                    400,
+                    "invalid_request_error",
+                    "strip_free must be a boolean",
+                );
+            }
+        };
+        let api_token = match token_patch(&object, "api_token", "clear_api_token") {
+            Ok(value) => value,
+            Err(message) => return error_response(400, "invalid_request_error", &message),
+        };
+        let auth_token = match token_patch(&object, "auth_token", "clear_auth_token") {
+            Ok(value) => value,
+            Err(message) => return error_response(400, "invalid_request_error", &message),
+        };
+        let nodes = match object.get("nodes") {
+            Some(raw) => match parse_nodes(raw) {
+                Ok(nodes) => Some(nodes),
+                Err(message) => return error_response(400, "invalid_request_error", &message),
+            },
+            None => None,
+        };
+        let path = &self.config_path;
+        let persisted;
+        {
+            let mut config = self.config.lock().expect("config lock");
+            if let Some(nodes) = nodes {
+                config.nodes = nodes;
+            }
+            if let Some(strip_free) = strip_free {
+                config.strip_free = strip_free;
+            }
+            if let Some(api_token) = api_token {
+                config.api_token = api_token;
+            }
+            if let Some(auth_token) = auth_token {
+                config.auth_token = auth_token;
+            }
+            persisted = persist_config(path, &config).is_ok();
+            if !persisted {
+                eprintln!("配置已生效，但写入 {} 失败", path.display());
+            }
+        }
+        {
+            let mut map = self.free_map.lock().expect("model map lock");
+            map.entries.clear();
+            map.refreshed_at = 0;
+        }
+        let mut payload = self.config_view(true);
+        payload["saved"] = json!(true);
+        payload["persisted"] = json!(persisted);
+        if !persisted {
+            payload["warning"] = json!("配置已生效，但写入配置文件失败");
+        }
+        json_response(200, payload)
     }
 
     fn models(&self, request: &HttpRequest) -> ResponseBox {
@@ -342,23 +534,46 @@ impl App {
                 }
                 proxy_response(response)
             }
-            Err(error) => {
-                if (400..500).contains(&error.status) && !error.body.is_empty() {
-                    response(
-                        error.status,
-                        error.body,
-                        Some("application/json; charset=utf-8"),
-                        None,
-                    )
-                } else {
-                    error_response(error.status, "upstream_error", &error.message)
-                }
-            }
+            Err(error) => upstream_error_response(error, "application/json; charset=utf-8"),
         }
     }
 
-    fn remap_chat_body(&self, mut payload: Value) -> Vec<u8> {
-        if self.strip_free {
+    fn responses_completions(&self, request: &mut HttpRequest) -> ResponseBox {
+        let mut body = Vec::new();
+        if request
+            .as_reader()
+            .take(MAX_BODY_BYTES + 1)
+            .read_to_end(&mut body)
+            .is_err()
+            || body.len() as u64 > MAX_BODY_BYTES
+        {
+            return bad_request();
+        }
+        let payload: Value = match serde_json::from_slice(&body) {
+            Ok(payload) => payload,
+            Err(_) => return bad_request(),
+        };
+        let stream = is_stream_request(&payload);
+        let payload = self.remap_model(payload);
+        let body = serde_json::to_vec(&payload).unwrap_or_default();
+        let accept = request_header(request, "Accept");
+        if stream {
+            return self.stream_upstream("/responses", body, accept.as_deref(), false);
+        }
+        match self.upstream(
+            "/responses",
+            Method::Post,
+            body,
+            accept.as_deref(),
+            false,
+        ) {
+            Ok(response) => proxy_response(response),
+            Err(error) => upstream_error_response(error, "application/json; charset=utf-8"),
+        }
+    }
+
+    fn remap_model(&self, mut payload: Value) -> Value {
+        if self.cfg().strip_free {
             self.refresh_free_map();
             if let Some(original) = payload
                 .get("model")
@@ -375,6 +590,11 @@ impl App {
                 payload["model"] = Value::String(original);
             }
         }
+        payload
+    }
+
+    fn remap_chat_body(&self, payload: Value) -> Vec<u8> {
+        let mut payload = self.remap_model(payload);
         // reasoning.effort 写法归一到 reasoning_effort，两种写法都能触发思考模式；
         // 已有显式 reasoning_effort 时优先保留原值
         if payload.get("reasoning_effort").is_none() {
@@ -413,7 +633,17 @@ impl App {
     }
 
     fn chat_stream(&self, body: Vec<u8>, accept: Option<&str>, thinking: bool) -> ResponseBox {
-        match self.upstream("/chat/completions", Method::Post, body, accept, true) {
+        self.stream_upstream("/chat/completions", body, accept, thinking)
+    }
+
+    fn stream_upstream(
+        &self,
+        path: &str,
+        body: Vec<u8>,
+        accept: Option<&str>,
+        thinking: bool,
+    ) -> ResponseBox {
+        match self.upstream(path, Method::Post, body, accept, true) {
             Ok(response) => {
                 let status = response.status().as_u16();
                 let mut body = response.into_body();
@@ -427,18 +657,7 @@ impl App {
                 append_cors(&mut headers);
                 Response::new(StatusCode(status), headers, Cursor::new(body), None, None).boxed()
             }
-            Err(error) => {
-                if (400..500).contains(&error.status) && !error.body.is_empty() {
-                    response(
-                        error.status,
-                        error.body,
-                        Some("text/event-stream; charset=utf-8"),
-                        None,
-                    )
-                } else {
-                    error_response(error.status, "upstream_error", &error.message)
-                }
-            }
+            Err(error) => upstream_error_response(error, "text/event-stream; charset=utf-8"),
         }
     }
 
@@ -462,6 +681,7 @@ impl App {
 
 impl App {
     fn process_models(&self, payload: Value) -> Vec<Value> {
+        let strip_free = self.cfg().strip_free;
         let mut map = self.free_map.lock().expect("model map lock");
         map.entries.clear();
         payload
@@ -475,7 +695,7 @@ impl App {
                 if !self.is_free_model(id) {
                     return None;
                 }
-                if !self.strip_free {
+                if !strip_free {
                     map.entries.insert(id.to_owned(), id.to_owned());
                     return Some(item);
                 }
@@ -559,7 +779,8 @@ impl App {
         accept: Option<&str>,
         stream: bool,
     ) -> Result<UpstreamResponse, UpstreamError> {
-        if self.nodes.is_empty() {
+        let config = self.cfg();
+        if config.nodes.is_empty() {
             return Err(UpstreamError {
                 status: 502,
                 message: "no upstream nodes configured".to_string(),
@@ -571,19 +792,19 @@ impl App {
         } else {
             &self.client
         };
-        let mut failures = Vec::with_capacity(self.nodes.len());
-        for node in &self.nodes {
+        let mut failures = Vec::with_capacity(config.nodes.len());
+        for node in &config.nodes {
             let url = format!("{node}{path}");
             let outcome = match method {
                 Method::Post => {
-                    let builder = add_headers(agent.post(&url), accept, &self.token);
+                    let builder = add_headers(agent.post(&url), accept, &config.api_token);
                     builder
                         .header("Content-Type", "application/json")
                         .send(&body)
                         .map(read_body_response)
                 }
                 Method::Get => {
-                    let builder = add_headers(agent.get(&url), accept, &self.token);
+                    let builder = add_headers(agent.get(&url), accept, &config.api_token);
                     builder.call().map(read_body_response)
                 }
                 _ => continue,
@@ -629,7 +850,8 @@ impl App {
     }
 
     fn forward(&self, request: &mut HttpRequest, method: &Method, full_path: &str) -> ResponseBox {
-        if self.nodes.is_empty() {
+        let config = self.cfg();
+        if config.nodes.is_empty() {
             return error_response(502, "upstream_error", "no upstream nodes configured");
         }
         let mut body = Vec::new();
@@ -644,9 +866,9 @@ impl App {
             return bad_request();
         }
         let target = route_upstream_path(full_path);
-        for node in &self.nodes {
+        for node in &config.nodes {
             let url = format!("{node}{target}");
-            let result = self.call_with_method(method, &url, &body);
+            let result = self.call_with_method(method, &url, &body, &config.api_token);
             match result {
                 Ok(response) => {
                     let status = response.status().as_u16();
@@ -682,23 +904,37 @@ impl App {
         method: &Method,
         url: &str,
         body: &[u8],
+        token: &Option<String>,
     ) -> Result<UpstreamResponse, ureq::Error> {
         let agent = &self.stream_client;
         let response = match method {
             Method::Post | Method::Put | Method::Patch => {
                 let builder = match method {
-                    Method::Post => add_token(agent.post(url), &self.token),
-                    Method::Put => add_token(agent.put(url), &self.token),
-                    _ => add_token(agent.patch(url), &self.token),
+                    Method::Post => add_token(agent.post(url), token),
+                    Method::Put => add_token(agent.put(url), token),
+                    _ => add_token(agent.patch(url), token),
                 };
                 builder
                     .header("Content-Type", "application/json")
                     .send(body)?
             }
-            Method::Delete => add_token(agent.delete(url), &self.token).call()?,
-            _ => add_token(agent.get(url), &self.token).call()?,
+            Method::Delete => add_token(agent.delete(url), token).call()?,
+            _ => add_token(agent.get(url), token).call()?,
         };
         Ok(read_body_response(response))
+    }
+}
+
+fn upstream_error_response(error: UpstreamError, content_type: &str) -> ResponseBox {
+    if (400..500).contains(&error.status) && !error.body.is_empty() {
+        response(
+            error.status,
+            error.body,
+            Some(content_type),
+            None,
+        )
+    } else {
+        error_response(error.status, "upstream_error", &error.message)
     }
 }
 
@@ -1008,6 +1244,22 @@ fn is_chat_path(path: &str) -> bool {
     CHAT_PATHS.contains(&path)
 }
 
+fn is_responses_path(path: &str) -> bool {
+    const RESPONSES_PATHS: &[&str] = &[
+        "/v1/responses",
+        "/responses",
+        "/api/paas/v4/responses",
+        "/api/v3/responses",
+        "/api/v1/responses",
+        "/v1beta/responses",
+    ];
+    RESPONSES_PATHS.contains(&path)
+}
+
+fn is_config_path(path: &str) -> bool {
+    path == "/api/config"
+}
+
 fn route_upstream_path(path: &str) -> String {
     if path == "/" {
         return "/".to_owned();
@@ -1058,6 +1310,185 @@ fn env_seconds(name: &str, fallback: u64) -> Duration {
             .and_then(|value| value.parse().ok())
             .unwrap_or(fallback),
     )
+}
+
+fn config_path() -> PathBuf {
+    env::var("CONFIG_PATH")
+        .ok()
+        .map(|value| value.trim().to_owned())
+        .filter(|value| !value.is_empty())
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from(DEFAULT_CONFIG_PATH))
+}
+
+fn admin_allowed(auth_required: bool, authorized: bool, remote: Option<IpAddr>) -> bool {
+    if auth_required {
+        authorized
+    } else {
+        remote.is_some_and(|ip| ip.is_loopback())
+    }
+}
+
+fn parse_nodes(value: &Value) -> Result<Vec<String>, String> {
+    let entries = value
+        .as_array()
+        .ok_or_else(|| "nodes must be an array of strings".to_owned())?;
+    if entries.len() > MAX_CONFIG_NODES {
+        return Err(format!(
+            "nodes must contain at most {MAX_CONFIG_NODES} entries"
+        ));
+    }
+    let mut nodes: Vec<String> = Vec::new();
+    for entry in entries {
+        let entry = entry
+            .as_str()
+            .ok_or_else(|| "nodes must be an array of strings".to_owned())?;
+        let node = entry.trim().trim_end_matches('/');
+        if node.is_empty() {
+            continue;
+        }
+        if !node.starts_with("http://") && !node.starts_with("https://") {
+            return Err(format!("unsupported node url: {node}"));
+        }
+        if !nodes.iter().any(|existing| existing == node) {
+            nodes.push(node.to_owned());
+        }
+    }
+    if nodes.is_empty() {
+        return Err("nodes must contain at least one entry".to_owned());
+    }
+    Ok(nodes)
+}
+
+fn token_patch(
+    object: &Map<String, Value>,
+    key: &str,
+    clear_key: &str,
+) -> Result<Option<Option<String>>, String> {
+    let provided = match object.get(key) {
+        None | Some(Value::Null) => None,
+        Some(Value::String(value)) => {
+            let value = value.trim();
+            if value.is_empty() {
+                None
+            } else {
+                Some(value.to_owned())
+            }
+        }
+        Some(_) => return Err(format!("{key} must be a string")),
+    };
+    let clear = object
+        .get(clear_key)
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
+    if clear && provided.is_some() {
+        return Err(format!("{key} and {clear_key} cannot be used together"));
+    }
+    if clear {
+        return Ok(Some(None));
+    }
+    Ok(provided.map(Some))
+}
+
+fn load_stored(path: &Path) -> Option<StoredConfig> {
+    let data = match fs::read(path) {
+        Ok(data) => data,
+        Err(error) => {
+            if error.kind() != std::io::ErrorKind::NotFound {
+                eprintln!("读取配置文件 {} 失败: {error}", path.display());
+            }
+            return None;
+        }
+    };
+    let value: Value = match serde_json::from_slice(&data) {
+        Ok(value) => value,
+        Err(error) => {
+            eprintln!(
+                "配置文件 {} 不是合法 JSON: {error}，已回退环境变量",
+                path.display()
+            );
+            return None;
+        }
+    };
+    let object = match value.as_object() {
+        Some(object) => object,
+        None => {
+            eprintln!("配置文件 {} 顶层必须是对象，已回退环境变量", path.display());
+            return None;
+        }
+    };
+    Some(StoredConfig {
+        nodes: object.get("nodes").cloned(),
+        api_token: object
+            .get("api_token")
+            .and_then(Value::as_str)
+            .map(str::to_owned),
+        auth_token: object
+            .get("auth_token")
+            .and_then(Value::as_str)
+            .map(str::to_owned),
+        strip_free: object.get("strip_free").and_then(Value::as_bool),
+    })
+}
+
+impl StoredConfig {
+    fn apply(&self, config: &mut RuntimeConfig) {
+        if let Some(nodes) = &self.nodes {
+            match parse_nodes(nodes) {
+                Ok(nodes) => config.nodes = nodes,
+                Err(message) => eprintln!("配置文件 nodes 无效，已忽略: {message}"),
+            }
+        }
+        if let Some(api_token) = &self.api_token {
+            let token = api_token.trim();
+            config.api_token = if token.is_empty() {
+                None
+            } else {
+                Some(token.to_owned())
+            };
+        }
+        if let Some(auth_token) = &self.auth_token {
+            let token = auth_token.trim();
+            config.auth_token = if token.is_empty() {
+                None
+            } else {
+                Some(token.to_owned())
+            };
+        }
+        if let Some(strip_free) = self.strip_free {
+            config.strip_free = strip_free;
+        }
+    }
+}
+
+fn persist_config(path: &Path, config: &RuntimeConfig) -> std::io::Result<()> {
+    let payload = json!({
+        "nodes": config.nodes,
+        "api_token": config.api_token,
+        "auth_token": config.auth_token,
+        "strip_free": config.strip_free,
+    });
+    let mut data = serde_json::to_vec_pretty(&payload).map_err(std::io::Error::other)?;
+    data.push(b'\n');
+    if let Some(parent) = path.parent() {
+        if !parent.as_os_str().is_empty() {
+            fs::create_dir_all(parent)?;
+        }
+    }
+    let mut temp = path.as_os_str().to_os_string();
+    temp.push(".tmp");
+    let temp = PathBuf::from(temp);
+    fs::write(&temp, &data)?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let _ = fs::set_permissions(&temp, fs::Permissions::from_mode(0o600));
+    }
+    if let Err(error) = fs::rename(&temp, path) {
+        let _ = fs::remove_file(&temp);
+        return Err(error);
+    }
+    Ok(())
 }
 
 fn split_nodes(value: &str) -> Vec<String> {
@@ -1161,12 +1592,156 @@ mod tests {
         assert_eq!(route_upstream_path("/"), "/");
     }
 
+    #[test]
+    fn admin_allowed_requires_token_or_loopback() {
+        let loopback = Some(IpAddr::V4(std::net::Ipv4Addr::LOCALHOST));
+        let lan = Some(IpAddr::V4(std::net::Ipv4Addr::new(192, 168, 1, 20)));
+        assert!(admin_allowed(true, true, None));
+        assert!(!admin_allowed(true, false, None));
+        assert!(admin_allowed(true, true, lan));
+        assert!(admin_allowed(false, false, loopback));
+        assert!(!admin_allowed(false, false, lan));
+        assert!(!admin_allowed(false, false, None));
+    }
+
+    #[test]
+    fn validates_and_normalizes_config_nodes() {
+        let nodes = parse_nodes(&json!([
+            " https://one.example/ ",
+            "https://two.example",
+            "https://one.example",
+            "",
+            "   "
+        ]))
+        .expect("valid nodes");
+        assert_eq!(nodes, ["https://one.example", "https://two.example"]);
+        assert!(parse_nodes(&json!("https://one.example")).is_err());
+        assert!(parse_nodes(&json!(["ftp://one.example"])).is_err());
+        assert!(parse_nodes(&json!([])).is_err());
+        assert!(parse_nodes(&json!(["", "   "])).is_err());
+        assert!(parse_nodes(&json!([42])).is_err());
+    }
+
+    #[test]
+    fn token_patch_handles_set_clear_and_conflicts() {
+        let object: Map<String, Value> =
+            serde_json::from_str(r#"{"api_token": "  secret  "}"#).unwrap();
+        assert_eq!(
+            token_patch(&object, "api_token", "clear_api_token").unwrap(),
+            Some(Some("secret".to_owned()))
+        );
+
+        let object: Map<String, Value> =
+            serde_json::from_str(r#"{"clear_api_token": true}"#).unwrap();
+        assert_eq!(
+            token_patch(&object, "api_token", "clear_api_token").unwrap(),
+            Some(None)
+        );
+
+        let object: Map<String, Value> = serde_json::from_str("{}").unwrap();
+        assert_eq!(
+            token_patch(&object, "api_token", "clear_api_token").unwrap(),
+            None
+        );
+
+        let object: Map<String, Value> = serde_json::from_str(r#"{"api_token": ""}"#).unwrap();
+        assert_eq!(
+            token_patch(&object, "api_token", "clear_api_token").unwrap(),
+            None
+        );
+
+        let object: Map<String, Value> =
+            serde_json::from_str(r#"{"api_token": "x", "clear_api_token": true}"#).unwrap();
+        assert!(token_patch(&object, "api_token", "clear_api_token").is_err());
+
+        let object: Map<String, Value> = serde_json::from_str(r#"{"api_token": 42}"#).unwrap();
+        assert!(token_patch(&object, "api_token", "clear_api_token").is_err());
+    }
+
+    #[test]
+    fn responses_paths_are_recognized() {
+        for path in [
+            "/v1/responses",
+            "/responses",
+            "/api/v1/responses",
+            "/api/v3/responses",
+            "/api/paas/v4/responses",
+            "/v1beta/responses",
+        ] {
+            assert!(is_responses_path(path), "{path} should be a responses path");
+        }
+        assert!(!is_responses_path("/v1/chat/completions"));
+        assert!(!is_responses_path("/api/config"));
+        assert!(is_config_path("/api/config"));
+        assert!(!is_config_path("/api/configs"));
+    }
+
+    fn temp_config_path(name: &str) -> PathBuf {
+        let stamp = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("clock before epoch")
+            .as_nanos();
+        let dir =
+            std::env::temp_dir().join(format!("opencode-free-api-tests-{}", std::process::id()));
+        fs::create_dir_all(&dir).expect("create temp dir");
+        dir.join(format!("{name}-{stamp}.json"))
+    }
+
+    fn test_agent() -> ureq::Agent {
+        ureq::Agent::config_builder()
+            .timeout_global(Some(Duration::from_secs(15)))
+            .http_status_as_error(false)
+            .build()
+            .new_agent()
+    }
+
+    fn read_json(response: http::Response<ureq::Body>) -> Value {
+        serde_json::from_slice(&read_body(response.into_body())).expect("response is JSON")
+    }
+
+    #[test]
+    fn persists_and_loads_config_file() {
+        let path = temp_config_path("roundtrip");
+        let config = RuntimeConfig {
+            nodes: vec!["https://one.example".to_owned()],
+            api_token: Some("api".to_owned()),
+            auth_token: None,
+            strip_free: true,
+        };
+        persist_config(&path, &config).expect("persist config");
+        let stored = load_stored(&path).expect("load config");
+        let mut restored = RuntimeConfig {
+            nodes: vec![DEFAULT_NODE.to_owned()],
+            api_token: None,
+            auth_token: Some("env".to_owned()),
+            strip_free: false,
+        };
+        stored.apply(&mut restored);
+        assert_eq!(restored.nodes, ["https://one.example"]);
+        assert_eq!(restored.api_token.as_deref(), Some("api"));
+        assert_eq!(restored.auth_token, None, "absent keys keep env values");
+        assert!(restored.strip_free);
+        let _ = fs::remove_file(&path);
+        let _ = fs::remove_file(format!("{}.tmp", path.display()));
+    }
+
+    #[test]
+    fn corrupt_config_file_falls_back_to_env() {
+        let path = temp_config_path("corrupt");
+        fs::write(&path, b"{ not json").expect("write corrupt file");
+        assert!(load_stored(&path).is_none());
+        let _ = fs::remove_file(&path);
+    }
+
     fn app_for_test() -> App {
         App {
-            nodes: vec![DEFAULT_NODE.to_owned()],
-            token: None,
-            auth_token: None,
-            strip_free: false,
+            config: Arc::new(Mutex::new(RuntimeConfig {
+                nodes: vec![DEFAULT_NODE.to_owned()],
+                api_token: None,
+                auth_token: None,
+                strip_free: false,
+            })),
+            config_path: PathBuf::from(DEFAULT_CONFIG_PATH),
             free_map: Arc::new(Mutex::new(FreeMap::new())),
             client: client(Duration::from_secs(15), Duration::from_secs(15)),
             stream_client: client(Duration::from_secs(15), Duration::from_secs(15)),
@@ -1176,6 +1751,18 @@ mod tests {
             public_ip: None,
             started: 0,
         }
+    }
+
+    fn app_with_strip_free() -> App {
+        let app = app_for_test();
+        app.config.lock().expect("config lock").strip_free = true;
+        app
+    }
+
+    fn app_with_nodes(node: &str) -> App {
+        let app = app_for_test();
+        app.config.lock().expect("config lock").nodes = vec![node.to_owned()];
+        app
     }
 
     fn live_models(app: &App) -> Vec<Value> {
@@ -1211,10 +1798,7 @@ mod tests {
 
     #[test]
     fn strips_free_suffix_on_live_list_and_maps_back() {
-        let app = App {
-            strip_free: true,
-            ..app_for_test()
-        };
+        let app = app_with_strip_free();
         let models = live_models(&app);
         assert!(
             !models.is_empty(),
@@ -1236,10 +1820,7 @@ mod tests {
 
     #[test]
     fn refresh_free_map_populates_empty_map() {
-        let app = App {
-            strip_free: true,
-            ..app_for_test()
-        };
+        let app = app_with_strip_free();
         let map = app.free_map.lock().unwrap();
         assert!(map.entries.is_empty(), "fresh app should have empty map");
         drop(map);
@@ -1256,10 +1837,7 @@ mod tests {
 
     #[test]
     fn remap_chat_body_primes_map_when_strip_free() {
-        let app = App {
-            strip_free: true,
-            ..app_for_test()
-        };
+        let app = app_with_strip_free();
         assert!(
             app.free_map.lock().unwrap().entries.is_empty(),
             "fresh app should have empty map"
@@ -1560,10 +2138,7 @@ data: [DONE]"#;
         .unwrap();
         let upstream_url =
             start_mock_upstream(Arc::clone(&capture), upstream_body, "application/json");
-        let app = App {
-            nodes: vec![upstream_url],
-            ..app_for_test()
-        };
+        let app = app_with_nodes(&upstream_url);
         let base = start_app_server(app);
         let client = ureq::Agent::config_builder()
             .timeout_global(Some(Duration::from_secs(10)))
@@ -1612,10 +2187,7 @@ data: [DONE]"#;
         .unwrap();
         let upstream_url =
             start_mock_upstream(Arc::clone(&capture), upstream_body, "application/json");
-        let app = App {
-            nodes: vec![upstream_url],
-            ..app_for_test()
-        };
+        let app = app_with_nodes(&upstream_url);
         let base = start_app_server(app);
         let client = ureq::Agent::config_builder()
             .timeout_global(Some(Duration::from_secs(10)))
@@ -1651,10 +2223,7 @@ data: [DONE]"#;
             sse.as_bytes().to_vec(),
             "text/event-stream; charset=utf-8",
         );
-        let app = App {
-            nodes: vec![upstream_url],
-            ..app_for_test()
-        };
+        let app = app_with_nodes(&upstream_url);
         let base = start_app_server(app);
         let client = ureq::Agent::config_builder()
             .timeout_global(Some(Duration::from_secs(10)))
@@ -1681,5 +2250,166 @@ data: [DONE]"#;
             finish_line.contains("\"reasoning_content\":\"\""),
             "finish chunk should carry fallback reasoning_content, got {finish_line}"
         );
+    }
+
+    #[test]
+    fn e2e_responses_remaps_stripped_model_and_forwards() {
+        let capture = Arc::new(Mutex::new(Vec::new()));
+        let upstream_body = serde_json::to_vec(&json!({
+            "id": "resp_1",
+            "object": "response",
+            "status": "completed"
+        }))
+        .unwrap();
+        let upstream_url =
+            start_mock_upstream(Arc::clone(&capture), upstream_body, "application/json");
+        let app = app_with_nodes(&upstream_url);
+        app.config.lock().expect("config lock").strip_free = true;
+        app.free_map
+            .lock()
+            .expect("model map lock")
+            .entries
+            .insert("big-pickle".to_owned(), "big-pickle-free".to_owned());
+        let base = start_app_server(app);
+        let client = test_agent();
+        let request_body = json!({"model": "big-pickle", "input": "hi", "stream": false});
+        let response = client
+            .post(&format!("{base}/v1/responses"))
+            .header("Content-Type", "application/json")
+            .send(serde_json::to_vec(&request_body).unwrap())
+            .expect("app should answer");
+        assert_eq!(response.status().as_u16(), 200);
+        let forwarded: Value =
+            serde_json::from_slice(&capture.lock().expect("capture lock")).expect("JSON body");
+        assert_eq!(forwarded["model"], json!("big-pickle-free"));
+    }
+
+    #[test]
+    fn e2e_responses_stream_passes_sse_through() {
+        let capture = Arc::new(Mutex::new(Vec::new()));
+        let sse = "data: {\"type\":\"response.output_text.delta\",\"delta\":\"hi\"}\n\ndata: [DONE]\n\n";
+        let upstream_url = start_mock_upstream(
+            Arc::clone(&capture),
+            sse.as_bytes().to_vec(),
+            "text/event-stream; charset=utf-8",
+        );
+        let app = app_with_nodes(&upstream_url);
+        let base = start_app_server(app);
+        let client = test_agent();
+        let request_body = json!({"model": "some-model", "input": "hi", "stream": true});
+        let response = client
+            .post(&format!("{base}/v1/responses"))
+            .header("Content-Type", "application/json")
+            .send(serde_json::to_vec(&request_body).unwrap())
+            .expect("app should answer");
+        assert_eq!(response.status().as_u16(), 200);
+        let text = String::from_utf8(read_body(response.into_body())).unwrap();
+        assert!(
+            text.contains("response.output_text.delta"),
+            "SSE should pass through, got {text}"
+        );
+    }
+
+    #[test]
+    fn e2e_config_endpoints_round_trip() {
+        let path = temp_config_path("http");
+        let app = app_for_test();
+        app.config_path = path.clone();
+        let base = start_app_server(app);
+        let client = test_agent();
+
+        let view = read_json(
+            client
+                .get(&format!("{base}/api/config"))
+                .call()
+                .expect("config view"),
+        );
+        assert_eq!(view["admin"], json!(true), "loopback should be admin");
+        assert_eq!(view["auth_required"], json!(false));
+        assert_eq!(view["strip_free"], json!(false));
+        assert!(view["nodes"].as_array().is_some());
+
+        let patch = json!({
+            "nodes": [" https://api-one.example/ ", "https://api-two.example"],
+            "strip_free": true,
+            "api_token": "zen-key"
+        });
+        let saved = read_json(
+            client
+                .post(&format!("{base}/api/config"))
+                .header("Content-Type", "application/json")
+                .send(serde_json::to_vec(&patch).unwrap())
+                .expect("config update"),
+        );
+        assert_eq!(saved["saved"], json!(true));
+        assert_eq!(saved["persisted"], json!(true));
+        assert_eq!(saved["strip_free"], json!(true));
+        assert_eq!(saved["api_token"], json!("zen-key"));
+
+        let stored = load_stored(&path).expect("persisted config");
+        assert_eq!(stored.strip_free, Some(true));
+        assert_eq!(stored.api_token.as_deref(), Some("zen-key"));
+        assert_eq!(
+            stored.nodes,
+            Some(json!(["https://api-one.example", "https://api-two.example"]))
+        );
+
+        let rejected = client
+            .post(&format!("{base}/api/config"))
+            .header("Content-Type", "application/json")
+            .send(serde_json::to_vec(&json!({"nodes": ["ftp://bad.example"]})).unwrap())
+            .expect("invalid config update should answer");
+        assert_eq!(rejected.status().as_u16(), 400);
+        let still = read_json(
+            client
+                .get(&format!("{base}/api/config"))
+                .call()
+                .expect("config view"),
+        );
+        assert_eq!(
+            still["nodes"],
+            json!(["https://api-one.example", "https://api-two.example"]),
+            "invalid patch must not change stored nodes"
+        );
+
+        let _ = fs::remove_file(&path);
+        let _ = fs::remove_file(format!("{}.tmp", path.display()));
+    }
+
+    #[test]
+    fn e2e_index_stays_reachable_with_auth_token() {
+        let app = app_for_test();
+        app.config.lock().expect("config lock").auth_token = Some("secret".to_owned());
+        let base = start_app_server(app);
+        let client = test_agent();
+
+        let index = client
+            .get(&format!("{base}/"))
+            .call()
+            .expect("index should stay reachable");
+        assert_eq!(index.status().as_u16(), 200);
+
+        let models = client
+            .get(&format!("{base}/v1/models"))
+            .call()
+            .expect("models should answer");
+        assert_eq!(models.status().as_u16(), 401);
+
+        let wrong = client
+            .get(&format!("{base}/v1/models"))
+            .header("Authorization", "Bearer wrong")
+            .call()
+            .expect("wrong token should answer");
+        assert_eq!(wrong.status().as_u16(), 401);
+
+        let view = read_json(
+            client
+                .get(&format!("{base}/api/config"))
+                .header("Authorization", "Bearer secret")
+                .call()
+                .expect("authorized config view"),
+        );
+        assert_eq!(view["admin"], json!(true));
+        assert_eq!(view["auth_token"], json!("secret"));
     }
 }

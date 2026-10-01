@@ -21,7 +21,7 @@ _✨ OpenAI 兼容反代 · 单文件部署 ✨_
 
 每个 [GitHub Release](../../releases) 提供各平台的免安装压缩包——单文件可执行，无依赖、无脚本，解压即用。
 
-启动后控制台会打印三个访问地址（本机 / 局域网 / 公网）。将任意 OpenAI 兼容客户端指向其中之一即可，API Key 留空。如需设置 `API_TOKEN`、`AUTH_TOKEN` 或自定义 `NODES`，在运行前通过环境变量配置（见下表）。
+启动后控制台会打印三个访问地址（本机 / 局域网 / 公网）。将任意 OpenAI 兼容客户端指向其中之一即可，API Key 留空。如需设置 `API_TOKEN`、`AUTH_TOKEN` 或自定义 `NODES`，既可以在运行前通过环境变量配置（见下表），也可以启动后在网页「服务设置」里直接修改——保存后立即生效并写入配置文件，重启自动加载。
 
 ## 配置
 
@@ -31,8 +31,9 @@ _✨ OpenAI 兼容反代 · 单文件部署 ✨_
 | `PORT` | `8788` | 绑定端口 |
 | `NODES` | `https://opencode.ai/zen/v1` | 逗号分隔的上游基础 URL，默认官方 OpenCode Zen 网关 |
 | `API_TOKEN` | 未设置 | 发往上游的可选 Bearer 令牌，未设置时不发送 Authorization 请求头（填你的 Zen Key） |
-| `AUTH_TOKEN` | 未设置 | 设置后请求须携带 `Authorization: Bearer <value>`（`/health` 与预检除外） |
+| `AUTH_TOKEN` | 未设置 | 设置后请求须携带 `Authorization: Bearer <value>`（`/health`、首页与预检除外） |
 | `STRIP_FREE` | off | 去掉 `/v1/models` 返回 ID 的 `-free` 后缀，调用时映射回真实 ID |
+| `CONFIG_PATH` | `opencode-free-api-config.json` | 网页「服务设置」保存的配置文件路径；文件存在时按字段覆盖上面四个环境变量，解析失败自动回退环境变量 |
 | `UPSTREAM_TIMEOUT` | `90` | 非流式上游请求超时（秒） |
 | `STREAM_TIMEOUT` | `1800` | 流式上游请求超时（秒） |
 | `CONNECT_TIMEOUT` | `10` | 上游 TCP/TLS 连接超时（秒） |
@@ -53,9 +54,13 @@ AUTH_TOKEN=my-secret \
 | `GET` | `/v1/models` | 免费模型列表，仅暴露上游 `*-free` 模型 |
 | `GET` | `/claude/v1/models` `/anthropic/v1/models` | Claude 兼容模型列表 |
 | `POST` | `/v1/chat/completions` | 对话补全，支持流式 SSE |
+| `POST` | `/v1/responses` | Responses 补全（OpenAI Responses 兼容），支持流式 SSE |
+| `GET` `POST` | `/api/config` | 读取 / 保存服务设置（上游节点、令牌、`STRIP_FREE`），保存后立即生效并写入配置文件 |
 | `*` | 其他 | 透传上游，失败则切换下一节点 |
 
-`/v1` 前缀的端点同时兼容 `/models`、`/chat/completions` 及 `/api/v1`、`/api/v3`、`/api/paas/v4`、`/v1beta` 等常见别名。`/v1/models` 拉取上游列表并只保留免费模型；上游请求统一使用 `User-Agent: opencode/1.0`，流式请求以 SSE 逐块转发并在失败时切换多节点。`/health` 报告请求数和监听地址信息。
+`/v1` 前缀的端点同时兼容 `/models`、`/chat/completions`、`/responses` 及 `/api/v1`、`/api/v3`、`/api/paas/v4`、`/v1beta` 等常见别名。`/v1/models` 拉取上游列表并只保留免费模型；上游请求统一使用 `User-Agent: opencode/1.0`，流式请求以 SSE 逐块转发并在失败时切换多节点。`/health` 报告请求数和监听地址信息。
+
+`/api/config` 的读写权限：已设置 `AUTH_TOKEN` 时必须携带对应 Bearer 令牌；未设置时只有来自 `127.0.0.1` 的请求可以写入，其他来源只读（令牌字段以掩码返回）。`GET /api/config` 返回 `nodes`、`strip_free`、`api_token`/`auth_token`（非管理员为空串）、`*_set`、`admin`、`auth_required` 与 `config_path`；`POST` 接受 `nodes`（数组）、`strip_free`（布尔）、`api_token`/`auth_token`（字符串，空值不变）与 `clear_api_token`/`clear_auth_token`（`true` 清除），未出现的字段保持原值。
 
 ## 思考模式（thinking）
 
@@ -67,7 +72,12 @@ AUTH_TOKEN=my-secret \
 
 ## 前端页面
 
-访问根路径（如 `http://localhost:8788/`）返回内嵌状态页，展示服务状态、请求统计、接口说明与监听地址。启用 JS 后会轮询 `/health` 与 `/v1/models` 实时刷新，并检测 GitHub Release 显示更新横幅。
+访问根路径（如 `http://localhost:8788/`）返回内嵌状态页：
+
+- **状态与统计**：轮询 `/health` 展示运行时长、请求数与免费模型数量，并检测 GitHub Release 显示更新横幅
+- **可用模型**：默认展开的模型面板，支持搜索过滤、手动刷新与点击复制模型 ID；启用 `AUTH_TOKEN` 后自动携带管理令牌，未提供时显示「需要管理令牌」
+- **服务设置**：在页面里直接修改 `NODES`（每行一个）、`STRIP_FREE`、`API_TOKEN`、`AUTH_TOKEN`，保存后立即热更新并写入 `CONFIG_PATH` 指向的配置文件，重启自动加载；管理令牌可勾选「记住」存放在本机浏览器
+- **权限**：首页与 `/health` 无需凭证即可打开；启用 `AUTH_TOKEN` 后读写接口需 Bearer 令牌，未启用时仅 `127.0.0.1` 可修改配置，其他来源只读
 
 ## Android
 

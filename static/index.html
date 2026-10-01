@@ -4,12 +4,11 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="darkreader-lock">
+<meta name="color-scheme" content="dark">
+<meta name="theme-color" content="#14110d">
 <title>OpenCode Free API</title>
 <link rel="icon" type="image/x-icon" href="https://opencode.ai/favicon-v3.ico">
 <link rel="apple-touch-icon" href="https://opencode.ai/apple-touch-icon-v3.png">
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;1,6..72,400&display=swap" rel="stylesheet">
 <style>
   :root {
     --bg: #14110d;
@@ -24,9 +23,16 @@
     --radius: 16px;
     --radius-sm: 10px;
     --shadow: 0 1px 2px rgba(0,0,0,0.3), 0 8px 32px rgba(0,0,0,0.25);
+    --font: system-ui, -apple-system, "Segoe UI", "PingFang SC", "HarmonyOS Sans SC",
+            "Microsoft YaHei", "Noto Sans CJK SC", sans-serif;
+    --font-mono: "SF Mono", Consolas, "Liberation Mono", monospace;
   }
   * { box-sizing: border-box; margin: 0; padding: 0; }
-  html, body { background: var(--bg); color: var(--text); font-family: 'Inter', system-ui, sans-serif; line-height: 1.5; -webkit-font-smoothing: antialiased; }
+  html, body {
+    background: var(--bg); color: var(--text);
+    font-family: var(--font); line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+  }
   body {
     background-color: var(--bg);
     background-image:
@@ -35,66 +41,168 @@
       linear-gradient(var(--grid-line) 1px, transparent 1px),
       linear-gradient(90deg, var(--grid-line) 1px, transparent 1px);
     background-size: 100% 100%, 100% 100%, 40px 40px, 40px 40px;
-    background-position: 0 0, 0 0, 0 0, 0 0;
     min-height: 100vh;
-    animation: gridScroll 3s linear infinite;
   }
-  @keyframes gridScroll {
-    from { background-position: 0% 0%, 0% 0%, 0px 0px, 0px 0px; }
-    to   { background-position: 0% 0%, 0% 0%, -40px 40px, -40px 40px; }
-  }
+  body.has-banner { padding-bottom: 72px; }
   ::selection { background: rgba(204,120,92,.5); }
-  .wrap { max-width: 1120px; margin: 0 auto; padding: 0 24px; position: relative; }
-  nav { padding: 20px 0; display: flex; justify-content: space-between; align-items: center; }
-  .brand { font-family: 'Newsreader', serif; font-size: 20px; font-weight: 500; letter-spacing: -0.01em; }
+  :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 4px; }
+  .wrap { max-width: 1120px; margin: 0 auto; padding: 0 24px; }
+
+  nav { padding: 20px 0; display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+  .brand { font-size: 20px; font-weight: 600; letter-spacing: -0.01em; }
   .brand b { color: var(--accent); }
-  .status { display: inline-flex; align-items: center; gap: 8px; font-size: 13px; color: var(--text-muted); padding: 6px 12px; background: var(--bg-card); border: 1px solid var(--border); border-radius: 999px; }
-  .dot { width: 8px; height: 8px; border-radius: 50%; background: #5a544a; }
-  .dot.ok { background: #4a9d6b; animation: pulse 2s ease-in-out infinite; box-shadow: 0 0 8px rgba(74,157,107,0.6); }
+  .status {
+    display: inline-flex; align-items: center; gap: 8px; flex-shrink: 0;
+    font-size: 13px; color: var(--text-muted);
+    padding: 6px 12px; background: var(--bg-card);
+    border: 1px solid var(--border); border-radius: 999px;
+  }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: #5a544a; flex-shrink: 0; }
+  .dot.ok { background: #4a9d6b; box-shadow: 0 0 8px rgba(74,157,107,0.6); }
+  @media (prefers-reduced-motion: no-preference) {
+    .dot.ok { animation: pulse 2s ease-in-out infinite; }
+  }
   @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.5} }
+
   header { padding: 72px 0 56px; text-align: center; }
-  .eyebrow { font-size: 13px; color: var(--accent); font-weight: 500; letter-spacing: 0.04em; text-transform: uppercase; margin-bottom: 20px; }
-  h1 { font-family: 'Newsreader', serif; font-weight: 400; font-size: clamp(40px, 6vw, 72px); line-height: 1.05; letter-spacing: -0.025em; margin-bottom: 24px; }
-  h1 em { font-style: italic; color: var(--accent); }
-  .sub { font-size: 18px; color: var(--text-muted); max-width: 620px; margin: 0 auto 36px; }
+  .eyebrow {
+    font-size: 13px; color: var(--accent); font-weight: 600;
+    letter-spacing: 0.04em; text-transform: uppercase; margin-bottom: 20px;
+  }
+  h1 {
+    font-weight: 700; font-size: clamp(40px, 6vw, 72px);
+    line-height: 1.15; letter-spacing: -0.025em; margin-bottom: 24px;
+    text-wrap: balance;
+  }
+  h1 em { font-style: normal; color: var(--accent); font-weight: 500; }
+  .sub { font-size: 18px; color: var(--text-muted); max-width: 620px; margin: 0 auto 36px; text-wrap: pretty; }
   .cta { display: inline-flex; gap: 12px; flex-wrap: wrap; justify-content: center; }
-  .btn { display: inline-flex; align-items: center; gap: 8px; padding: 12px 22px; border-radius: 999px; font-size: 15px; font-weight: 500; text-decoration: none; border: 1px solid transparent; transition: all .2s ease; cursor: pointer; }
+  .btn {
+    display: inline-flex; align-items: center; gap: 8px;
+    padding: 12px 22px; border-radius: 999px; font-size: 15px; font-weight: 500;
+    text-decoration: none; border: 1px solid transparent;
+    transition: background .2s ease, color .2s ease, border-color .2s ease; cursor: pointer;
+  }
   .btn-primary { background: var(--text); color: var(--bg); }
   .btn-primary:hover { background: var(--accent); color: var(--text); }
   .btn-ghost { background: transparent; color: var(--text); border-color: var(--border); }
   .btn-ghost:hover { border-color: var(--text); }
+
   .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 16px; padding: 24px 0 64px; }
-  .card { background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius); padding: 28px; transition: transform .2s ease, background .2s ease, box-shadow .2s ease; }
+  .card {
+    background: var(--bg-card); border: 1px solid var(--border);
+    border-radius: var(--radius); padding: 28px;
+    transition: transform .2s ease, background .2s ease, box-shadow .2s ease;
+  }
   .card:hover { transform: translateY(-2px); background: var(--bg-card-hover); box-shadow: var(--shadow); }
-  .card .ico { width: 40px; height: 40px; border-radius: var(--radius-sm); background: var(--accent-soft); color: var(--accent); display: flex; align-items: center; justify-content: center; margin-bottom: 18px; }
-  .card h3 { font-family: 'Newsreader', serif; font-weight: 500; font-size: 20px; margin-bottom: 8px; }
-  .card p { font-size: 14px; color: var(--text-muted); }
-  .card code, .endpoint code, .row code { font-family: 'SF Mono', Consolas, monospace; font-size: 0.88em; background: var(--accent-soft); color: var(--accent); padding: 1px 6px; border-radius: 4px; }
+  .card .ico {
+    width: 40px; height: 40px; border-radius: var(--radius-sm);
+    background: var(--accent-soft); color: var(--accent);
+    display: flex; align-items: center; justify-content: center; margin-bottom: 18px;
+  }
+  .card h3 { font-size: 20px; font-weight: 600; margin-bottom: 8px; }
+  .card p { font-size: 14px; color: var(--text-muted); text-wrap: pretty; }
+  .card code, .endpoint code {
+    font-family: var(--font-mono); font-size: 0.88em;
+    background: var(--accent-soft); color: var(--accent);
+    padding: 1px 6px; border-radius: 4px;
+  }
+
   .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 16px; padding: 16px 0 64px; }
   .stat { text-align: center; padding: 24px; background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius); }
-  .stat .v { font-family: 'Newsreader', serif; font-size: 32px; font-weight: 500; color: var(--text); }
+  .stat .v { font-size: 32px; font-weight: 700; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; }
   .stat .l { font-size: 13px; color: var(--text-muted); margin-top: 4px; }
+
   .endpoint { background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius); padding: 32px; margin-bottom: 64px; }
-  .endpoint h2 { font-family: 'Newsreader', serif; font-weight: 500; font-size: 24px; margin-bottom: 20px; }
-  .row { display: flex; align-items: center; gap: 12px; padding: 12px 0; border-bottom: 1px dashed var(--border); }
+  .endpoint h2 { font-size: 24px; font-weight: 600; margin-bottom: 20px; letter-spacing: -0.01em; }
+  .row {
+    display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+    padding: 12px 0; border-bottom: 1px dashed var(--border);
+  }
   .row:last-child { border-bottom: none; }
-  .method { font-size: 12px; font-weight: 600; padding: 4px 10px; border-radius: 6px; font-family: 'SF Mono', Consolas, monospace; }
+  .method { font-size: 12px; font-weight: 600; padding: 4px 10px; border-radius: 6px; font-family: var(--font-mono); flex-shrink: 0; }
   .m-get { background: rgba(74,157,107,0.18); color: #6fbf82; }
   .m-post { background: rgba(204,120,92,0.18); color: #e09879; }
-  .path { font-family: 'SF Mono', Consolas, monospace; font-size: 14px; color: var(--text); }
-  .addr { margin-left: auto; font-family: 'SF Mono', Consolas, monospace; font-size: 13px; color: var(--accent); }
-  .desc { margin-left: auto; font-size: 13px; color: var(--text-muted); }
+  .path { font-family: var(--font-mono); font-size: 14px; flex-shrink: 0; }
+  .addr, .desc { margin-left: auto; min-width: 0; text-align: right; }
+  .addr { font-family: var(--font-mono); font-size: 13px; color: var(--accent); overflow-wrap: anywhere; }
+  .desc { font-size: 13px; color: var(--text-muted); text-wrap: pretty; }
+  .copy-btn {
+    flex-shrink: 0; background: transparent; color: var(--text-muted);
+    border: 1px solid var(--border); border-radius: 6px;
+    padding: 3px 9px; font: inherit; font-size: 12px; cursor: pointer;
+    transition: color .15s ease, border-color .15s ease;
+  }
+  .copy-btn:hover { color: var(--accent); border-color: var(--accent); }
+  .copy-btn.done { color: #6fbf82; border-color: #6fbf82; }
+
+  details.models { margin-bottom: 0; }
+  details.models summary {
+    display: flex; align-items: center; gap: 10px; cursor: pointer;
+    list-style: none; font-size: 15px; user-select: none;
+  }
+  details.models summary::-webkit-details-marker { display: none; }
+  details.models summary::before {
+    content: ''; width: 0; height: 0; flex-shrink: 0;
+    border-left: 6px solid currentColor;
+    border-top: 4px solid transparent; border-bottom: 4px solid transparent;
+    transition: transform .2s ease; color: var(--accent);
+  }
+  details.models[open] summary::before { transform: rotate(90deg); }
+  .model-count { color: var(--text-muted); font-size: 13px; margin-left: auto; }
+  .model-list { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 16px; }
+  .model-list:empty::after { content: '暂无可用模型'; color: var(--text-muted); font-size: 13px; }
+  .model-chip {
+    font-family: var(--font-mono); font-size: 13px;
+    background: var(--accent-soft); color: var(--accent);
+    border: 1px solid transparent; border-radius: 8px;
+    padding: 5px 10px; cursor: pointer;
+    transition: border-color .15s ease, background .15s ease;
+  }
+  .model-chip:hover { border-color: var(--accent); }
+  .model-chip.done { background: rgba(74,157,107,0.18); color: #6fbf82; border-color: #6fbf82; }
+  .model-chip.hidden { display: none; }
+  .model-tools { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-top: 16px; }
+  .model-tools .search { flex: 1 1 220px; min-width: 0; }
+
+  .settings { display: grid; gap: 18px; }
+  .field { display: grid; gap: 6px; min-width: 0; }
+  .field > label { font-size: 14px; font-weight: 500; }
+  .field .hint { font-size: 12px; color: var(--text-muted); text-wrap: pretty; }
+  .grid2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 16px; }
+  input[type="text"], input[type="password"], textarea {
+    width: 100%; background: var(--bg); color: var(--text);
+    border: 1px solid var(--border); border-radius: var(--radius-sm);
+    padding: 10px 12px; font: inherit; font-size: 14px;
+    transition: border-color .15s ease;
+  }
+  textarea { font-family: var(--font-mono); min-height: 96px; resize: vertical; }
+  .inline > input[type="password"] { flex: 1 1 220px; width: auto; min-width: 0; }
+  input:focus, textarea:focus { border-color: var(--accent); outline: none; }
+  input:disabled, textarea:disabled, input[readonly], textarea[readonly] { opacity: .55; }
+  .inline { display: flex; gap: 14px; flex-wrap: wrap; align-items: center; }
+  .check { display: inline-flex; gap: 6px; align-items: center; font-size: 13px; color: var(--text-muted); cursor: pointer; }
+  .check input { width: auto; }
+  .actions { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+  .btn-sm { padding: 9px 18px; font-size: 14px; }
+  .cfg-msg { font-size: 13px; text-wrap: pretty; }
+  .cfg-msg.ok { color: #6fbf82; }
+  .cfg-msg.err { color: #e09879; }
+  .ro { font-family: var(--font-mono); font-size: 13px; color: var(--accent); overflow-wrap: anywhere; text-align: right; }
+
   footer { padding: 48px 0; border-top: 1px solid var(--border); text-align: center; color: var(--text-muted); font-size: 13px; }
   footer a { color: var(--accent); text-decoration: none; }
   footer a:hover { text-decoration: underline; }
-  .copy { font-family: 'Newsreader', serif; }
+  .footer-copy { font-weight: 500; }
+
   .banner {
     position: fixed; bottom: 0; left: 0; right: 0; z-index: 50;
-    display: flex; align-items: center; justify-content: center; gap: 16px;
+    display: none; align-items: center; justify-content: center; gap: 16px;
     padding: 14px 20px; font-size: 14px;
     background: linear-gradient(135deg, var(--accent), #e0977f);
     color: #fff; box-shadow: 0 -4px 24px rgba(0,0,0,0.35);
   }
+  .banner.show { display: flex; }
   .banner a {
     color: #fff; font-weight: 600; text-decoration: none;
     padding: 6px 14px; border: 1px solid rgba(255,255,255,0.6); border-radius: 8px;
@@ -106,13 +214,31 @@
     font-size: 18px; line-height: 1; display: flex; align-items: center; justify-content: center;
   }
   .banner-close:hover { background: rgba(255,255,255,0.32); }
+
+  @media (max-width: 640px) {
+    .wrap { padding: 0 16px; }
+    header { padding: 48px 0 40px; }
+    .cards, .stats { grid-template-columns: 1fr; }
+    .endpoint { padding: 24px 20px; }
+    .model-count { margin-left: 0; }
+  }
+  @media (max-width: 480px) {
+    .row { flex-direction: column; align-items: flex-start; gap: 6px; }
+    .addr, .desc { margin-left: 0; text-align: left; width: 100%; }
+  }
+  @media (max-width: 480px) {
+    .row.method-row { flex-direction: row; align-items: center; flex-wrap: wrap; }
+    .row.method-row .desc { width: 100%; text-align: left; }
+  }
 </style>
 </head>
 <body>
 <div class="wrap">
   <nav>
     <div class="brand">OpenCode <b>Free</b> API</div>
-    <div class="status"><span class="dot" id="dot"></span><span id="status">运行中</span></div>
+    <div class="status" role="status" aria-live="polite">
+      <span class="dot" id="dot"></span><span id="status">检查中…</span>
+    </div>
   </nav>
 
   <header>
@@ -121,21 +247,21 @@
     <p class="sub">一个面向 OpenAI 兼容上游的轻量反向代理，自动过滤免费模型，多节点故障转移，零依赖部署。</p>
     <div class="cta">
       <a class="btn btn-primary" href="#endpoints">查看接口</a>
-      <a class="btn btn-ghost" href="https://github.com/ERX399/opencode-free-api-rust" target="_blank">GitHub</a>
+      <a class="btn btn-ghost" href="https://github.com/ERX399/opencode-free-api-rust" target="_blank" rel="noopener noreferrer">GitHub</a>
     </div>
   </header>
 
   <div class="cards">
     <div class="card">
       <div class="ico">
-        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>
       </div>
       <h3>极速轻量</h3>
       <p>纯 Rust 实现，rustls 加密，单文件二进制，内存占用极低。</p>
     </div>
     <div class="card">
       <div class="ico">
-        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
       </div>
       <h3>OpenAI 兼容</h3>
       <p>标准 <code>/v1/chat/completions</code> 端点，支持流式 SSE，任何客户端直连。</p>
@@ -150,113 +276,531 @@
 
   <div class="endpoint" id="endpoints">
     <h2>API 接口</h2>
-    <div class="row"><span class="method m-get">GET</span><span class="path">/health</span><span class="desc">健康检查与统计</span></div>
-    <div class="row"><span class="method m-get">GET</span><span class="path">/v1/models</span><span class="desc">免费模型列表</span></div>
-    <div class="row"><span class="method m-post">POST</span><span class="path">/v1/chat/completions</span><span class="desc">对话补全（支持流式）</span></div>
+    <div class="row method-row"><span class="method m-get">GET</span><span class="path">/health</span><span class="desc">健康检查与统计</span></div>
+    <div class="row method-row"><span class="method m-get">GET</span><span class="path">/v1/models</span><span class="desc">免费模型列表</span></div>
+    <div class="row method-row"><span class="method m-post">POST</span><span class="path">/v1/chat/completions</span><span class="desc">对话补全（支持流式）</span></div>
+    <div class="row method-row"><span class="method m-post">POST</span><span class="path">/v1/responses</span><span class="desc">Responses 补全（OpenAI Responses 兼容，支持流式）</span></div>
+    <div class="row method-row"><span class="method m-get">GET</span><span class="path">/api/config</span><span class="desc">读取服务配置（同路径 POST 保存，需管理令牌或本机访问）</span></div>
   </div>
 
   <div class="endpoint">
     <h2>快速开始</h2>
-    <div class="row"><span class="path">本机</span><span class="addr" id="url-loopback">http://127.0.0.1:__PORT__/v1</span></div>
-    <div class="row"><span class="path">局域网</span><span class="addr" id="url-lan">http://__LOCAL_IP__:__PORT__/v1</span></div>
-    <div class="row"><span class="path">公网</span><span class="addr" id="url-public">http://__PUBLIC_IP__:__PORT__/v1</span></div>
+    <div class="row"><span class="path">本机</span><span class="addr" id="url-loopback">http://127.0.0.1:__PORT__/v1</span><button type="button" class="copy-btn" data-copy-target="url-loopback">复制</button></div>
+    <div class="row"><span class="path">局域网</span><span class="addr" id="url-lan">http://__LOCAL_IP__:__PORT__/v1</span><button type="button" class="copy-btn" data-copy-target="url-lan">复制</button></div>
+    <div class="row"><span class="path">公网</span><span class="addr" id="url-public">http://__PUBLIC_IP__:__PORT__/v1</span><button type="button" class="copy-btn" data-copy-target="url-public">复制</button></div>
     <div class="row"><span class="path">注意</span><span class="desc">中国大陆家庭网络可能无法直接使用公网连接，建议优先用局域网</span></div>
     <div class="row"><span class="path">API Key</span><span class="desc">留空即可（除非设置了 AUTH_TOKEN）</span></div>
     <div class="row"><span class="path">上游</span><span class="desc">官方 OpenCode Zen 网关</span></div>
   </div>
 
+  <div class="endpoint">
+    <details class="models" id="models-box" open>
+      <summary>
+        <span>可用模型</span>
+        <span class="model-count" id="model-count">加载中…</span>
+      </summary>
+      <div class="model-tools">
+        <input type="text" class="search" id="model-search" placeholder="搜索模型 ID…" aria-label="搜索模型">
+        <button type="button" class="copy-btn" id="model-refresh">刷新</button>
+      </div>
+      <div class="model-list" id="model-list"></div>
+    </details>
+  </div>
+
+  <div class="endpoint" id="settings">
+    <h2>服务设置</h2>
+    <div class="settings">
+      <div class="field">
+        <label for="cfg-admin">管理令牌</label>
+        <div class="inline">
+          <input type="password" id="cfg-admin" autocomplete="off" placeholder="AUTH_TOKEN；未启用鉴权时留空">
+          <label class="check"><input type="checkbox" id="cfg-admin-remember"> 记住（存在本机浏览器）</label>
+        </div>
+        <span class="hint">启用 AUTH_TOKEN 后，读取与修改设置都需要该令牌；未启用时只有 127.0.0.1 能改，局域网只能读。</span>
+      </div>
+
+      <div class="field">
+        <label for="cfg-nodes">上游节点 NODES</label>
+        <textarea id="cfg-nodes" spellcheck="false" placeholder="每行一个 https:// 开头的上游地址"></textarea>
+        <span class="hint">保存后立即生效，按从上到下的顺序故障转移。</span>
+      </div>
+
+      <div class="field">
+        <label>模型与令牌</label>
+        <div class="inline">
+          <label class="check"><input type="checkbox" id="cfg-strip"> STRIP_FREE（对客户端隐藏 -free 后缀）</label>
+        </div>
+      </div>
+
+      <div class="grid2">
+        <div class="field">
+          <label for="cfg-api">API_TOKEN（发往上游）</label>
+          <input type="password" id="cfg-api" autocomplete="off" placeholder="留空保持不变">
+          <label class="check"><input type="checkbox" id="cfg-api-clear"> 清除该令牌</label>
+        </div>
+        <div class="field">
+          <label for="cfg-auth">AUTH_TOKEN（本服务鉴权）</label>
+          <input type="password" id="cfg-auth" autocomplete="off" placeholder="留空保持不变">
+          <label class="check"><input type="checkbox" id="cfg-auth-clear"> 清除该令牌</label>
+        </div>
+      </div>
+
+      <div class="row"><span class="path">监听端口</span><span class="ro addr" id="cfg-port">—</span><span class="desc">HOST / PORT 由启动环境变量决定，需重启生效</span></div>
+      <div class="row"><span class="path">配置文件</span><span class="ro addr" id="cfg-path">—</span><span class="desc">保存时写入，重启自动加载</span></div>
+
+      <div class="actions">
+        <button type="button" class="btn btn-primary btn-sm" id="cfg-save">保存配置</button>
+        <button type="button" class="btn btn-ghost btn-sm" id="cfg-reload">重新加载</button>
+        <span class="cfg-msg" id="cfg-msg" role="status" aria-live="polite"></span>
+      </div>
+    </div>
+  </div>
+
   <footer>
-    <div class="copy">© 夏若倾心 · v<span id="ver">__VERSION__</span> · <a href="https://github.com/ERX399/opencode-free-api-rust" target="_blank">GitHub</a></div>
+    <div class="footer-copy">© 夏若倾心 · v<span id="ver">__VERSION__</span> · <a href="https://github.com/ERX399/opencode-free-api-rust" target="_blank" rel="noopener noreferrer">GitHub</a></div>
   </footer>
 </div>
 
-<div class="banner" id="update-banner" style="display:none;">
+<div class="banner" id="update-banner" role="region" aria-label="版本更新提示">
   <span>发现新版本 <b id="update-ver"></b>，立即更新</span>
-  <a id="update-link" href="https://github.com/ERX399/opencode-free-api-rust/releases/latest" target="_blank">去下载 →</a>
-  <button type="button" id="update-close" class="banner-close">×</button>
+  <a id="update-link" href="https://github.com/ERX399/opencode-free-api-rust/releases/latest" target="_blank" rel="noopener noreferrer">去下载 →</a>
+  <button type="button" id="update-close" class="banner-close" aria-label="关闭">×</button>
 </div>
 
 <script>
-  document.getElementById('dot').classList.remove('ok');
-  document.getElementById('status').textContent = '检查中…';
-  const base = location.origin;
-  let startedAt = null;
+  (function () {
+    'use strict';
 
-  function fmt(sec) {
-    const h = String(Math.floor(sec / 3600)).padStart(2, '0');
-    const m = String(Math.floor((sec % 3600) / 60)).padStart(2, '0');
-    const s = String(Math.floor(sec % 60)).padStart(2, '0');
-    return `${h}:${m}:${s}`;
-  }
+    var $ = function (id) { return document.getElementById(id); };
+    var dot = $('dot'), statusEl = $('status');
+    var uptimeEl = $('s-uptime'), reqEl = $('s-req'), modelsEl = $('s-models');
+    var modelCount = $('model-count'), modelList = $('model-list'), modelSearch = $('model-search');
+    var loopbackEl = $('url-loopback'), lanEl = $('url-lan'), publicEl = $('url-public');
+    var banner = $('update-banner'), updateVer = $('update-ver'), verEl = $('ver');
+    var cfgMsg = $('cfg-msg'), cfgNodes = $('cfg-nodes'), cfgStrip = $('cfg-strip');
+    var cfgApi = $('cfg-api'), cfgApiClear = $('cfg-api-clear');
+    var cfgAuth = $('cfg-auth'), cfgAuthClear = $('cfg-auth-clear');
+    var cfgAdmin = $('cfg-admin'), cfgAdminRemember = $('cfg-admin-remember');
+    var cfgPathEl = $('cfg-path'), cfgPortEl = $('cfg-port');
 
-  function tick() {
-    if (startedAt) {
-      document.getElementById('s-uptime').textContent = fmt((Date.now() - startedAt * 1000) / 1000);
+    var base = location.origin;
+    var startedAt = null;
+    var tickTimer = null, pollTimer = null, backoff = 5000;
+    var sessionToken = '';
+    var TOKEN_KEY = 'ocfa-admin-token';
+
+    function storedToken() {
+      try { return localStorage.getItem(TOKEN_KEY) || ''; } catch (e) { return ''; }
     }
-  }
 
-  async function poll() {
-    try {
-      const r = await fetch(base + '/health');
-      const j = await r.json();
-      startedAt = j.started ?? startedAt;
-      tick();
-      document.getElementById('dot').classList.add('ok');
-      document.getElementById('status').textContent = '运行中';
-      document.getElementById('s-req').textContent = j.requests ?? 0;
-      const port = j.port ?? '8788';
-      const pub = j.public_ip ? `http://${j.public_ip}:${port}/v1` : '无法获取公网 IP';
-      document.getElementById('url-loopback').textContent = `http://127.0.0.1:${port}/v1`;
-      document.getElementById('url-lan').textContent = j.local_ip ? `http://${j.local_ip}:${port}/v1` : '无法获取局域网 IP';
-      document.getElementById('url-public').textContent = pub;
-    } catch (e) {
-      document.getElementById('dot').classList.remove('ok');
-      document.getElementById('status').textContent = '连接失败';
+    function adminToken() {
+      return sessionToken || storedToken();
     }
-  }
 
-  async function loadModels() {
-    try {
-      const r = await fetch(base + '/v1/models');
-      const j = await r.json();
-      document.getElementById('s-models').textContent = j.data?.length ?? 0;
-    } catch (e) {}
-  }
-
-  function verNum(v) {
-    let n = 0, p = 1;
-    for (const part of String(v || '').split(/[.-]/)) {
-      n += parseInt(part, 10) * p;
-      p *= 100;
+    function rememberToken(value) {
+      sessionToken = '';
+      try {
+        if (value) { localStorage.setItem(TOKEN_KEY, value); }
+        else { localStorage.removeItem(TOKEN_KEY); }
+      } catch (e) {}
     }
-    return n;
-  }
 
-  async function checkUpdate() {
-    try {
-      const cur = document.getElementById('ver').textContent;
-      const r = await fetch('https://api.github.com/repos/ERX399/opencode-free-api-rust/releases/latest', {
-        headers: { 'Accept': 'application/vnd.github+json' }
-      });
-      if (!r.ok) return;
-      const j = await r.json();
-      const tag = String(j.tag_name || '').replace(/^v/i, '');
-      if (tag && verNum(tag) > verNum(cur)) {
-        document.getElementById('update-ver').textContent = 'v' + tag;
-        document.getElementById('update-banner').style.display = 'flex';
+    // 读模型与配置都要带管理令牌，否则启用 AUTH_TOKEN 后页面只剩 401
+    function apiHeaders(extra) {
+      var headers = {};
+      if (extra) {
+        for (var key in extra) {
+          if (Object.prototype.hasOwnProperty.call(extra, key)) headers[key] = extra[key];
+        }
       }
-    } catch (e) {}
-  }
+      var token = adminToken();
+      if (token) headers['Authorization'] = 'Bearer ' + token;
+      return headers;
+    }
 
-  document.getElementById('update-close').addEventListener('click', () => {
-    document.getElementById('update-banner').style.display = 'none';
-  });
+    function setCfgMsg(text, ok) {
+      cfgMsg.textContent = text || '';
+      cfgMsg.classList.toggle('ok', !!ok);
+      cfgMsg.classList.toggle('err', !!(text && !ok));
+    }
 
-  poll();
-  loadModels();
-  checkUpdate();
-  setInterval(tick, 1000);
-  setInterval(poll, 5000);
+    function errorText(fallback, response, payload) {
+      if (payload && payload.error && payload.error.message) return payload.error.message;
+      return fallback + '（HTTP ' + (response ? response.status : '?') + '）';
+    }
+
+    function readJson(response) {
+      return response.json().catch(function () { return null; });
+    }
+
+    function fmt(sec) {
+      var h = String(Math.floor(sec / 3600));
+      var m = String(Math.floor((sec % 3600) / 60));
+      var s = String(Math.floor(sec % 60));
+      return (h.length < 2 ? '0' + h : h) + ':' + (m.length < 2 ? '0' + m : m) + ':' + (s.length < 2 ? '0' + s : s);
+    }
+
+    function tick() {
+      if (!startedAt) return;
+      var el = Date.now() / 1000 - startedAt;
+      if (el < 0) el = 0;
+      uptimeEl.textContent = fmt(el);
+    }
+
+    function setStatus(text, ok) {
+      statusEl.textContent = text;
+      dot.classList.toggle('ok', !!ok);
+    }
+
+    // 页面可能通过局域网 http 访问（非安全上下文），clipboard 不可用，必须降级到 execCommand
+    function copyViaExec(text) {
+      return new Promise(function (resolve, reject) {
+        var ta = document.createElement('textarea');
+        ta.value = text;
+        ta.setAttribute('readonly', '');
+        ta.style.cssText = 'position:fixed;top:0;left:0;opacity:0;pointer-events:none';
+        document.body.appendChild(ta);
+        ta.select();
+        ta.setSelectionRange(0, text.length);
+        var ok = false;
+        try { ok = document.execCommand('copy'); } catch (err) { ok = false; }
+        document.body.removeChild(ta);
+        if (ok) { resolve(); } else { reject(new Error('copy failed')); }
+      });
+    }
+
+    // 页面可能通过局域网 http 访问（非安全上下文），clipboard 不可用或被拒绝，
+    // 两种情况都必须降级到 execCommand，否则复制功能整体失效。
+    function copyText(text) {
+      if (navigator.clipboard && window.isSecureContext) {
+        return navigator.clipboard.writeText(text).catch(function () {
+          return copyViaExec(text);
+        });
+      }
+      return copyViaExec(text);
+    }
+
+    function flashDone(btn, label) {
+      if (!btn) return;
+      var original = btn.dataset.originalLabel || btn.textContent;
+      btn.dataset.originalLabel = original;
+      btn.textContent = label;
+      btn.classList.add('done');
+      if (btn._copyTimer) clearTimeout(btn._copyTimer);
+      btn._copyTimer = setTimeout(function () {
+        btn.textContent = original;
+        btn.classList.remove('done');
+      }, 1200);
+    }
+
+    function handleCopy(btn, text) {
+      if (!text) return;
+      copyText(text).then(function () {
+        flashDone(btn, '已复制');
+      }).catch(function () {
+        flashDone(btn, '复制失败');
+      });
+    }
+
+    document.addEventListener('click', function (e) {
+      var btn = e.target.closest ? e.target.closest('.copy-btn, .model-chip') : null;
+      if (!btn) return;
+      var text = btn.dataset.modelId || '';
+      if (!text && btn.dataset.copyTarget) {
+        var src = $(btn.dataset.copyTarget);
+        text = src ? src.textContent : '';
+      }
+      text = (text || '').trim();
+      if (!text || text === '—') return;
+      handleCopy(btn, text);
+    });
+
+    async function poll() {
+      try {
+        var r = await fetch(base + '/health', { cache: 'no-store' });
+        if (!r.ok) throw new Error('health ' + r.status);
+        var j = await r.json();
+        startedAt = typeof j.started === 'number' ? j.started : startedAt;
+        tick();
+        setStatus('运行中', true);
+        reqEl.textContent = typeof j.requests === 'number' ? j.requests : '—';
+        var port = j.port || '8788';
+        loopbackEl.textContent = 'http://127.0.0.1:' + port + '/v1';
+        lanEl.textContent = j.local_ip ? 'http://' + j.local_ip + ':' + port + '/v1' : '无法获取局域网 IP';
+        publicEl.textContent = j.public_ip ? 'http://' + j.public_ip + ':' + port + '/v1' : '无法获取公网 IP';
+        if (cfgPortEl) cfgPortEl.textContent = (location.hostname || '127.0.0.1') + ':' + port;
+        backoff = 5000;
+      } catch (e) {
+        setStatus('连接失败', false);
+        backoff = Math.min(backoff * 2, 30000);
+      }
+    }
+
+    function applyModelFilter() {
+      var query = (modelSearch.value || '').trim().toLowerCase();
+      var chips = modelList.querySelectorAll('.model-chip');
+      var shown = 0;
+      for (var i = 0; i < chips.length; i++) {
+        var id = (chips[i].dataset.modelId || '').toLowerCase();
+        var hit = !query || id.indexOf(query) !== -1;
+        chips[i].classList.toggle('hidden', !hit);
+        if (hit) shown++;
+      }
+      if (!chips.length) return;
+      modelsEl.textContent = chips.length;
+      modelCount.textContent = query ? (shown + '/' + chips.length + ' 个') : (chips.length + ' 个');
+    }
+
+    async function loadModels() {
+      try {
+        var r = await fetch(base + '/v1/models', { cache: 'no-store', headers: apiHeaders() });
+        if (!r.ok) {
+          modelsEl.textContent = '—';
+          modelList.textContent = '';
+          modelCount.textContent = r.status === 401 ? '需要管理令牌' : '获取失败（' + r.status + '）';
+          return;
+        }
+        var j = await r.json();
+        var list = (j && j.data) || [];
+        modelList.textContent = '';
+        list.forEach(function (m) {
+          var id = m && m.id;
+          if (!id) return;
+          var chip = document.createElement('button');
+          chip.type = 'button';
+          chip.className = 'model-chip';
+          chip.dataset.modelId = id;
+          chip.title = '点击复制模型 ID';
+          chip.textContent = id;
+          modelList.appendChild(chip);
+        });
+        modelsEl.textContent = list.length;
+        modelCount.textContent = list.length + ' 个';
+        applyModelFilter();
+      } catch (e) {
+        modelsEl.textContent = '—';
+        modelCount.textContent = '获取失败';
+        modelList.textContent = '';
+      }
+    }
+
+    function fillConfig(j) {
+      var admin = !!(j && j.admin);
+      if (!j) j = {};
+      cfgNodes.value = Array.isArray(j.nodes) ? j.nodes.join('\n') : '';
+      cfgStrip.checked = !!j.strip_free;
+      cfgApi.value = admin ? (j.api_token || '') : '';
+      cfgAuth.value = admin ? (j.auth_token || '') : '';
+      cfgApiClear.disabled = !admin || !j.api_token_set;
+      cfgAuthClear.disabled = !admin || !j.auth_token_set;
+      if (cfgApiClear.disabled) cfgApiClear.checked = false;
+      if (cfgAuthClear.disabled) cfgAuthClear.checked = false;
+      cfgNodes.readOnly = !admin;
+      cfgStrip.disabled = !admin;
+      cfgApi.readOnly = !admin;
+      cfgAuth.readOnly = !admin;
+      cfgPathEl.textContent = j.config_path || '—';
+      return admin;
+    }
+
+    async function loadConfig() {
+      try {
+        var r = await fetch(base + '/api/config', { cache: 'no-store', headers: apiHeaders() });
+        var j = await readJson(r);
+        if (r.status === 401) {
+          fillConfig(null);
+          setCfgMsg('需要管理令牌：请输入 AUTH_TOKEN 后点「重新加载」', false);
+          return;
+        }
+        if (!r.ok) {
+          fillConfig(null);
+          setCfgMsg(errorText('读取配置失败', r, j), false);
+          return;
+        }
+        if (!fillConfig(j)) {
+          setCfgMsg(
+            j && j.auth_required
+              ? '只读：请输入管理令牌后点「重新加载」'
+              : '只读：请从本机 127.0.0.1 访问本页面以修改配置',
+            false
+          );
+        } else if (!cfgMsg.classList.contains('ok')) {
+          setCfgMsg('');
+        }
+      } catch (e) {
+        fillConfig(null);
+        setCfgMsg('读取配置失败：' + e.message, false);
+      }
+    }
+
+    async function saveConfig() {
+      var payload = {};
+      var lines = cfgNodes.value.split(/[\r\n,]+/)
+        .map(function (line) { return line.trim().replace(/\/+$/, ''); })
+        .filter(function (line) { return line.length > 0; });
+      if (lines.length) payload.nodes = lines;
+      payload.strip_free = !!cfgStrip.checked;
+      var api = cfgApi.value.trim();
+      var auth = cfgAuth.value.trim();
+      if (api) payload.api_token = api;
+      if (cfgApiClear.checked) payload.clear_api_token = true;
+      if (auth) payload.auth_token = auth;
+      if (cfgAuthClear.checked) payload.clear_auth_token = true;
+
+      setCfgMsg('保存中…', true);
+      try {
+        var r = await fetch(base + '/api/config', {
+          method: 'POST',
+          headers: apiHeaders({ 'Content-Type': 'application/json' }),
+          body: JSON.stringify(payload)
+        });
+        var j = await readJson(r);
+        if (r.status === 401 || r.status === 403) {
+          setCfgMsg(errorText('无权修改：需要管理令牌或本机访问', r, j), false);
+          return;
+        }
+        if (!r.ok) {
+          setCfgMsg(errorText('保存失败', r, j), false);
+          return;
+        }
+        if (auth) {
+          if (cfgAdminRemember.checked) {
+            rememberToken(auth);
+          } else {
+            sessionToken = auth;
+            try { localStorage.removeItem(TOKEN_KEY); } catch (e) {}
+          }
+          cfgAdmin.value = auth;
+        } else if (cfgAuthClear.checked) {
+          rememberToken('');
+          cfgAdmin.value = '';
+        }
+        fillConfig(j);
+        setCfgMsg(j && j.persisted === false ? '已生效，但配置文件写入失败' : '已保存并立即生效', true);
+        loadModels();
+      } catch (e) {
+        setCfgMsg('保存失败：' + e.message, false);
+      }
+    }
+
+    function parseVer(v) {
+      return String(v || '').trim().replace(/^v/i, '').split(/[.-]/).map(function (p) {
+        var n = parseInt(p, 10);
+        return isNaN(n) ? 0 : n;
+      });
+    }
+
+    function isNewer(remote, local) {
+      var a = parseVer(remote), b = parseVer(local);
+      var len = Math.max(a.length, b.length);
+      for (var i = 0; i < len; i++) {
+        var x = a[i] || 0, y = b[i] || 0;
+        if (x > y) return true;
+        if (x < y) return false;
+      }
+      return false;
+    }
+
+    function dismissedVersion() {
+      try { return sessionStorage.getItem('ocfa-dismissed') || ''; } catch (e) { return ''; }
+    }
+
+    function hideBanner() {
+      banner.classList.remove('show');
+      document.body.classList.remove('has-banner');
+    }
+
+    async function checkUpdate() {
+      var tag;
+      try {
+        var controller = new AbortController();
+        var to = setTimeout(function () { controller.abort(); }, 5000);
+        var r = await fetch('https://api.github.com/repos/ERX399/opencode-free-api-rust/releases/latest', {
+          headers: { 'Accept': 'application/vnd.github+json' },
+          signal: controller.signal
+        });
+        clearTimeout(to);
+        if (!r.ok) return;
+        var j = await r.json();
+        tag = String(j.tag_name || '').replace(/^v/i, '');
+      } catch (e) {
+        return;
+      }
+      if (!tag || !isNewer(tag, verEl.textContent)) return;
+      if (dismissedVersion() === tag) return;
+      updateVer.textContent = 'v' + tag;
+      banner.classList.add('show');
+      document.body.classList.add('has-banner');
+    }
+
+    $('update-close').addEventListener('click', function () {
+      try {
+        sessionStorage.setItem('ocfa-dismissed', updateVer.textContent.replace(/^v/i, ''));
+      } catch (e) {}
+      hideBanner();
+    });
+
+    function startTimers() {
+      stopTimers();
+      tickTimer = setInterval(tick, 1000);
+      pollTimer = setInterval(poll, backoff);
+    }
+
+    function stopTimers() {
+      if (tickTimer) { clearInterval(tickTimer); tickTimer = null; }
+      if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
+    }
+
+    document.addEventListener('visibilitychange', function () {
+      if (document.hidden) {
+        stopTimers();
+      } else {
+        backoff = 5000;
+        startTimers();
+        poll();
+        tick();
+      }
+    });
+
+    $('cfg-save').addEventListener('click', saveConfig);
+    $('cfg-reload').addEventListener('click', loadConfig);
+
+    cfgAdmin.addEventListener('change', function () {
+      var value = cfgAdmin.value.trim();
+      if (value && cfgAdminRemember.checked) {
+        rememberToken(value);
+      } else if (value) {
+        sessionToken = value;
+        try { localStorage.removeItem(TOKEN_KEY); } catch (e) {}
+      } else {
+        sessionToken = '';
+        rememberToken('');
+      }
+      loadConfig();
+      loadModels();
+    });
+
+    cfgAdminRemember.addEventListener('change', function () {
+      var value = cfgAdmin.value.trim();
+      if (cfgAdminRemember.checked && value) rememberToken(value);
+      if (!cfgAdminRemember.checked) {
+        sessionToken = value;
+        try { localStorage.removeItem(TOKEN_KEY); } catch (e) {}
+      }
+    });
+
+    modelSearch.addEventListener('input', applyModelFilter);
+    $('model-refresh').addEventListener('click', function () { loadModels(); });
+
+    cfgAdmin.value = adminToken();
+    cfgAdminRemember.checked = !!storedToken();
+
+    startTimers();
+    poll();
+    loadModels();
+    loadConfig();
+    window.addEventListener('load', function () { setTimeout(checkUpdate, 600); });
+  })();
 </script>
 <noscript>
   <style>

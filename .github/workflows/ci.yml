@@ -1,0 +1,74 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  check:
+    name: test & lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: Run tests
+        run: cargo test
+
+      - name: Clippy (advisory)
+        continue-on-error: true
+        run: cargo clippy --all-targets -- -D warnings
+
+      - name: Format check (advisory)
+        continue-on-error: true
+        run: cargo fmt --check
+
+  build:
+    name: build ${{ matrix.asset }}
+    needs: check
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            bin: opencode-free-api
+            asset: opencode-free-api-linux-x86_64
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            bin: opencode-free-api.exe
+            asset: opencode-free-api-windows-x86_64.exe
+          - os: macos-latest
+            target: aarch64-apple-darwin
+            bin: opencode-free-api
+            asset: opencode-free-api-macos-arm64
+          - os: macos-latest
+            target: x86_64-apple-darwin
+            bin: opencode-free-api
+            asset: opencode-free-api-macos-x86_64
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Build release binary
+        run: cargo build --release --target ${{ matrix.target }}
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.asset }}
+          path: target/${{ matrix.target }}/release/${{ matrix.bin }}
+          if-no-files-found: error

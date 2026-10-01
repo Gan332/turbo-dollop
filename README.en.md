@@ -21,7 +21,7 @@ Lightweight Rust reverse proxy for OpenAI-compatible upstreams. Filters models t
 
 Each [GitHub Release](../../releases) ships no-install archives per platform — a single executable, no dependencies, no scripts. Unzip and run.
 
-The console prints three addresses on startup (loopback / LAN / public). Point any OpenAI-compatible client at one of them; the API key can be left blank. Set `API_TOKEN`, `AUTH_TOKEN` or a custom `NODES` list via environment variables before launch (see table below).
+The console prints three addresses on startup (loopback / LAN / public). Point any OpenAI-compatible client at one of them; the API key can be left blank. Set `API_TOKEN`, `AUTH_TOKEN` or a custom `NODES` list either via environment variables before launch (see table below) or later from the **Service settings** panel in the web UI — changes apply immediately, are written to the config file and are reloaded on restart.
 
 ## Configuration
 
@@ -31,8 +31,9 @@ The console prints three addresses on startup (loopback / LAN / public). Point a
 | `PORT` | `8788` | Bind port |
 | `NODES` | `https://opencode.ai/zen/v1` | Comma-separated upstream base URLs; defaults to the official OpenCode Zen gateway |
 | `API_TOKEN` | unset | Optional Bearer token sent to each upstream; unset means no Authorization header is sent (fill in your Zen key) |
-| `AUTH_TOKEN` | unset | If set, requests must carry `Authorization: Bearer <value>` (`/health` and preflight exempt) |
+| `AUTH_TOKEN` | unset | If set, requests must carry `Authorization: Bearer <value>` (`/health`, the index page and preflight are exempt) |
 | `STRIP_FREE` | off | Strip the `-free` suffix from model IDs in `/v1/models` and map calls back to the real ID |
+| `CONFIG_PATH` | `opencode-free-api-config.json` | Config file written by the web **Service settings** panel; when present its fields override the four variables above, and a malformed file falls back to the environment |
 | `UPSTREAM_TIMEOUT` | `90` | Non-streaming upstream request timeout (seconds) |
 | `STREAM_TIMEOUT` | `1800` | Streaming upstream request timeout (seconds) |
 | `CONNECT_TIMEOUT` | `10` | Upstream TCP/TLS connect timeout (seconds) |
@@ -53,9 +54,13 @@ AUTH_TOKEN=my-secret \
 | `GET` | `/v1/models` | Free model list — only `*-free` models from the upstream |
 | `GET` | `/claude/v1/models` `/anthropic/v1/models` | Claude-compatible model list |
 | `POST` | `/v1/chat/completions` | Chat completions, streaming SSE supported |
+| `POST` | `/v1/responses` | Responses API (OpenAI Responses compatible), streaming SSE supported |
+| `GET` `POST` | `/api/config` | Read / save service settings (upstream nodes, tokens, `STRIP_FREE`); saves take effect immediately and are written to the config file |
 | `*` | anything else | Transparently forwarded upstream; failure triggers failover to the next node |
 
-`/v1`-prefixed endpoints also accept `/models`, `/chat/completions` and common aliases like `/api/v1`, `/api/v3`, `/api/paas/v4`, `/v1beta`. `/v1/models` fetches the upstream list and keeps only free models; upstream requests use `User-Agent: opencode/1.0`, streaming requests are forwarded chunk-by-chunk as SSE and fail over to the next node on errors. `/health` reports request count and listen address information.
+`/v1`-prefixed endpoints also accept `/models`, `/chat/completions`, `/responses` and common aliases like `/api/v1`, `/api/v3`, `/api/paas/v4`, `/v1beta`. `/v1/models` fetches the upstream list and keeps only free models; upstream requests use `User-Agent: opencode/1.0`, streaming requests are forwarded chunk-by-chunk as SSE and fail over to the next node on errors. `/health` reports request count and listen address information.
+
+`/api/config` access rules: when `AUTH_TOKEN` is set the matching Bearer token is required; otherwise only requests from `127.0.0.1` may write, every other origin is read-only (token fields come back masked). `GET /api/config` returns `nodes`, `strip_free`, `api_token`/`auth_token` (empty for non-admins), `*_set`, `admin`, `auth_required` and `config_path`; `POST` accepts `nodes` (array), `strip_free` (boolean), `api_token`/`auth_token` (string, empty means unchanged) and `clear_api_token`/`clear_auth_token` (`true` to clear). Fields that are absent keep their current value.
 
 ## Thinking mode
 
@@ -67,7 +72,12 @@ A request carrying `thinking.enabled`, `reasoning_effort`, or `reasoning.effort`
 
 ## Web UI
 
-Visiting the root path (e.g. `http://localhost:8788/`) returns an embedded status page showing service status, request stats, endpoint docs and listen addresses. With JS enabled it polls `/health` and `/v1/models` to refresh live, and checks GitHub releases to show an update banner.
+Visiting the root path (e.g. `http://localhost:8788/`) returns an embedded status page:
+
+- **Status & stats**: polls `/health` for uptime, request count and free-model count, and checks GitHub releases to show an update banner
+- **Available models**: an expanded-by-default model panel with search filtering, manual refresh and click-to-copy model IDs; when `AUTH_TOKEN` is enabled the admin token is attached automatically, otherwise the panel reports that an admin token is needed
+- **Service settings**: edit `NODES` (one per line), `STRIP_FREE`, `API_TOKEN` and `AUTH_TOKEN` right in the page — saves hot-apply to the running service and are written to the file at `CONFIG_PATH`, then reloaded on restart; the admin token can be remembered in the local browser
+- **Access**: the index page and `/health` stay open without credentials; with `AUTH_TOKEN` set the read/write endpoints require a Bearer token, without it only `127.0.0.1` may change settings while every other origin stays read-only
 
 ## Android
 
