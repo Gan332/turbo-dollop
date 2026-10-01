@@ -460,11 +460,7 @@ impl App {
             },
             Some(Value::Null) | None => None,
             Some(_) => {
-                return error_response(
-                    400,
-                    "invalid_request_error",
-                    "protocol must be a string",
-                );
+                return error_response(400, "invalid_request_error", "protocol must be a string");
             }
         };
         let api_token = match token_patch(&object, "api_token", "clear_api_token") {
@@ -706,9 +702,7 @@ impl App {
                     }
                     sse_response(200, converted)
                 }
-                Err(error) => {
-                    upstream_error_response(error, "text/event-stream; charset=utf-8")
-                }
+                Err(error) => upstream_error_response(error, "text/event-stream; charset=utf-8"),
             };
         }
         match self.upstream("/responses", Method::Post, body, accept, false) {
@@ -753,9 +747,7 @@ impl App {
                     let text = String::from_utf8_lossy(&response.into_body()).replace("\r\n", "\n");
                     sse_response(200, chat_stream_to_responses_stream(&text).into_bytes())
                 }
-                Err(error) => {
-                    upstream_error_response(error, "text/event-stream; charset=utf-8")
-                }
+                Err(error) => upstream_error_response(error, "text/event-stream; charset=utf-8"),
             };
         }
         match self.upstream("/chat/completions", Method::Post, body, accept, false) {
@@ -1445,7 +1437,11 @@ fn chat_message_text(message: &Value) -> String {
 }
 
 fn chat_content_parts(content: Option<&Value>, assistant: bool) -> Vec<Value> {
-    let text_type = if assistant { "output_text" } else { "input_text" };
+    let text_type = if assistant {
+        "output_text"
+    } else {
+        "input_text"
+    };
     match content {
         Some(Value::String(text)) => vec![json!({"type": text_type, "text": text})],
         Some(Value::Array(items)) => {
@@ -1526,7 +1522,8 @@ fn responses_message_content(parts: Option<&Value>) -> Value {
                     .and_then(Value::as_str)
                     == Some("text")
             {
-                return converted.remove(0)
+                return converted
+                    .remove(0)
                     .get("text")
                     .cloned()
                     .unwrap_or_else(|| json!(""));
@@ -1601,7 +1598,10 @@ fn chat_to_responses_request(payload: &Value) -> Value {
     let mut input: Vec<Value> = Vec::new();
     if let Some(messages) = payload.get("messages").and_then(Value::as_array) {
         for message in messages {
-            let role = message.get("role").and_then(Value::as_str).unwrap_or("user");
+            let role = message
+                .get("role")
+                .and_then(Value::as_str)
+                .unwrap_or("user");
             if role == "system" || role == "developer" {
                 let text = chat_message_text(message);
                 if !text.is_empty() {
@@ -1618,9 +1618,7 @@ fn chat_to_responses_request(payload: &Value) -> Value {
                 continue;
             }
             let assistant = role == "assistant";
-            if assistant
-                && let Some(calls) = message.get("tool_calls").and_then(Value::as_array)
-            {
+            if assistant && let Some(calls) = message.get("tool_calls").and_then(Value::as_array) {
                 for call in calls {
                     let function = call.get("function");
                     let call_id = call
@@ -1709,7 +1707,10 @@ fn responses_request_to_chat(payload: &Value) -> Value {
         Some(Value::String(text)) => messages.push(json!({"role": "user", "content": text})),
         Some(Value::Array(items)) => {
             for item in items {
-                let kind = item.get("type").and_then(Value::as_str).unwrap_or("message");
+                let kind = item
+                    .get("type")
+                    .and_then(Value::as_str)
+                    .unwrap_or("message");
                 match kind {
                     "function_call" => messages.push(json!({
                         "role": "assistant",
@@ -1777,7 +1778,10 @@ fn responses_request_to_chat(payload: &Value) -> Value {
 }
 
 fn responses_usage_to_chat(usage: &Value) -> Value {
-    let input = usage.get("input_tokens").and_then(Value::as_u64).unwrap_or(0);
+    let input = usage
+        .get("input_tokens")
+        .and_then(Value::as_u64)
+        .unwrap_or(0);
     let output = usage
         .get("output_tokens")
         .and_then(Value::as_u64)
@@ -1866,7 +1870,10 @@ fn responses_to_chat_response(payload: &Value) -> Value {
         .get("id")
         .and_then(Value::as_str)
         .unwrap_or("chatcmpl-converted");
-    let model = response.get("model").and_then(Value::as_str).unwrap_or("unknown");
+    let model = response
+        .get("model")
+        .and_then(Value::as_str)
+        .unwrap_or("unknown");
     let created = response
         .get("created_at")
         .and_then(Value::as_u64)
@@ -1975,7 +1982,10 @@ fn chat_to_responses_response(payload: &Value) -> Value {
         .get("id")
         .and_then(Value::as_str)
         .unwrap_or("resp_converted");
-    let model = payload.get("model").and_then(Value::as_str).unwrap_or("unknown");
+    let model = payload
+        .get("model")
+        .and_then(Value::as_str)
+        .unwrap_or("unknown");
     let created = payload
         .get("created")
         .and_then(Value::as_u64)
@@ -2022,7 +2032,11 @@ fn chat_to_responses_response(payload: &Value) -> Value {
     result.insert("model".to_owned(), json!(model));
     result.insert(
         "status".to_owned(),
-        json!(if incomplete { "incomplete" } else { "completed" }),
+        json!(if incomplete {
+            "incomplete"
+        } else {
+            "completed"
+        }),
     );
     result.insert("output".to_owned(), Value::Array(output));
     result.insert("output_text".to_owned(), json!(text));
@@ -2218,7 +2232,8 @@ fn responses_stream_to_chat_stream(text: &str) -> String {
                 let mut finish = "stop";
                 let mut usage: Option<Value> = None;
                 if let Some(response) = payload.get("response") {
-                    let incomplete = response.get("status").and_then(Value::as_str) == Some("incomplete")
+                    let incomplete = response.get("status").and_then(Value::as_str)
+                        == Some("incomplete")
                         && response
                             .get("incomplete_details")
                             .and_then(|details| details.get("reason"))
@@ -2463,7 +2478,9 @@ fn chat_stream_to_responses_stream(text: &str) -> String {
                     );
                     tools.push((chat_index, item_id, output_index, String::new()));
                 }
-                if let Some(entry) = tools.iter_mut().find(|(index, _, _, _)| *index == chat_index)
+                if let Some(entry) = tools
+                    .iter_mut()
+                    .find(|(index, _, _, _)| *index == chat_index)
                     && let Some(arguments) = function
                         .and_then(|value| value.get("arguments"))
                         .and_then(Value::as_str)
@@ -3171,7 +3188,11 @@ mod tests {
         assert_eq!(converted["tools"][0]["name"], json!("lookup"));
         assert!(converted["tools"][0].get("function").is_none());
         let input = converted["input"].as_array().expect("input array");
-        assert_eq!(input.len(), 4, "system moves to instructions, null content is dropped");
+        assert_eq!(
+            input.len(),
+            4,
+            "system moves to instructions, null content is dropped"
+        );
         assert_eq!(input[0]["type"], json!("message"));
         assert_eq!(input[0]["role"], json!("user"));
         assert_eq!(input[0]["content"][0]["type"], json!("input_text"));
@@ -3211,7 +3232,11 @@ mod tests {
         assert_eq!(messages[0]["role"], json!("system"));
         assert_eq!(messages[0]["content"], json!("be nice"));
         assert_eq!(messages[1]["role"], json!("user"));
-        assert_eq!(messages[1]["content"], json!("hi"), "single text part collapses to a string");
+        assert_eq!(
+            messages[1]["content"],
+            json!("hi"),
+            "single text part collapses to a string"
+        );
         assert_eq!(messages[2]["role"], json!("assistant"));
         assert_eq!(messages[2]["tool_calls"][0]["id"], json!("call_1"));
         assert_eq!(
@@ -3282,7 +3307,10 @@ mod tests {
         assert_eq!(responses["output_text"], json!("partial"));
         assert_eq!(responses["output"][0]["type"], json!("reasoning"));
         assert_eq!(responses["output"][1]["type"], json!("message"));
-        assert_eq!(responses["output"][1]["content"][0]["type"], json!("output_text"));
+        assert_eq!(
+            responses["output"][1]["content"][0]["type"],
+            json!("output_text")
+        );
         assert_eq!(responses["usage"]["input_tokens"], json!(7));
         assert_eq!(responses["usage"]["output_tokens"], json!(3));
         assert_eq!(responses["usage"]["total_tokens"], json!(10));
@@ -3303,7 +3331,10 @@ mod tests {
         assert!(converted.contains("\"content\":\"lo\""), "{converted}");
         assert!(converted.contains("\"model\":\"gpt-4o\""), "{converted}");
         assert!(converted.contains("\"created\":1700000002"), "{converted}");
-        assert!(converted.contains("\"finish_reason\":\"stop\""), "{converted}");
+        assert!(
+            converted.contains("\"finish_reason\":\"stop\""),
+            "{converted}"
+        );
         assert!(converted.contains("\"prompt_tokens\":3"), "{converted}");
         assert!(converted.contains("\"completion_tokens\":2"), "{converted}");
         assert!(
@@ -4253,7 +4284,11 @@ data: [DONE]"#;
             "data": [{"id": "a-free"}, {"id": "b-free"}],
         }))
         .unwrap();
-        let good_url = start_mock_upstream(Arc::new(Mutex::new(Vec::new())), list_body, "application/json");
+        let good_url = start_mock_upstream(
+            Arc::new(Mutex::new(Vec::new())),
+            list_body,
+            "application/json",
+        );
         let app = app_with_nodes(&good_url);
         app.config
             .lock()
