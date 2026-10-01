@@ -1776,8 +1776,7 @@ fn responses_request_to_chat(payload: &Value) -> Value {
     Value::Object(request)
 }
 
-fn chat_usage_from_response(response: &Value) -> Option<Value> {
-    let usage = response.get("usage")?;
+fn responses_usage_to_chat(usage: &Value) -> Value {
     let input = usage.get("input_tokens").and_then(Value::as_u64).unwrap_or(0);
     let output = usage
         .get("output_tokens")
@@ -1809,11 +1808,14 @@ fn chat_usage_from_response(response: &Value) -> Option<Value> {
             json!({"reasoning_tokens": tokens}),
         );
     }
-    Some(Value::Object(converted))
+    Value::Object(converted)
 }
 
-fn responses_usage_from_chat(payload: &Value) -> Option<Value> {
-    let usage = payload.get("usage")?;
+fn chat_usage_from_response(response: &Value) -> Option<Value> {
+    response.get("usage").map(responses_usage_to_chat)
+}
+
+fn chat_usage_to_responses(usage: &Value) -> Value {
     let prompt = usage
         .get("prompt_tokens")
         .and_then(Value::as_u64)
@@ -1848,7 +1850,11 @@ fn responses_usage_from_chat(payload: &Value) -> Option<Value> {
             json!({"reasoning_tokens": tokens}),
         );
     }
-    Some(Value::Object(converted))
+    Value::Object(converted)
+}
+
+fn responses_usage_from_chat(payload: &Value) -> Option<Value> {
+    payload.get("usage").map(chat_usage_to_responses)
 }
 
 fn responses_to_chat_response(payload: &Value) -> Value {
@@ -2210,7 +2216,7 @@ fn responses_stream_to_chat_stream(text: &str) -> String {
             }
             "response.completed" | "response.incomplete" | "response.failed" => {
                 let mut finish = "stop";
-                let mut usage: Option<&Value> = None;
+                let mut usage: Option<Value> = None;
                 if let Some(response) = payload.get("response") {
                     let incomplete = response.get("status").and_then(Value::as_str) == Some("incomplete")
                         && response
@@ -2232,7 +2238,7 @@ fn responses_stream_to_chat_stream(text: &str) -> String {
                     if incomplete {
                         finish = "length";
                     }
-                    usage = response.get("usage");
+                    usage = response.get("usage").map(responses_usage_to_chat);
                 }
                 if has_tools {
                     finish = "tool_calls";
@@ -2243,7 +2249,7 @@ fn responses_stream_to_chat_stream(text: &str) -> String {
                     created,
                     json!({}),
                     Some(finish),
-                    usage,
+                    usage.as_ref(),
                 ));
                 out.push_str("data: [DONE]\n\n");
                 finished = true;
@@ -2602,7 +2608,7 @@ fn chat_stream_to_responses_stream(text: &str) -> String {
         } else {
             Value::Null
         },
-        "usage": usage,
+        "usage": usage.map(chat_usage_to_responses),
     });
     if let Some(object) = response.as_object_mut()
         && object.get("usage").is_none_or(|value| value.is_null())
